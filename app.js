@@ -269,8 +269,10 @@ const StorageEngine = {
                 if (settled) return;
                 settled = true;
                 clearTimeout(safetyTimer);
-                console.error("IndexedDB open error:", request.error);
-                reject("IndexedDB error: " + (request.error ? request.error.message : 'Unknown'));
+                const errObj = request.error || e.target?.error;
+                const errMsg = errObj ? (errObj.message || errObj.name || String(errObj)) : 'Unknown';
+                console.error("IndexedDB open error:", errObj);
+                reject(new Error("IndexedDB error: " + errMsg));
             };
 
             request.onblocked = () => {
@@ -301,15 +303,28 @@ const StorageEngine = {
 
                 // Now initialize Firestore Offline Persistence
                 if (window.firebaseDB) {
+                    console.log('[StorageEngine] Firebase detected. Testing Firestore connection...');
+                    // Test write to verify Firestore rules allow access
+                    try {
+                        await window.firebaseDB.collection('app_config').doc('heartbeat').set({ ts: Date.now() });
+                        console.log('[StorageEngine] ✅ Firestore write test PASSED — rules allow access.');
+                    } catch (testErr) {
+                        console.error('[StorageEngine] ❌ Firestore write test FAILED:', testErr.code, testErr.message);
+                        console.warn('[StorageEngine] Data will only be saved locally (IndexedDB). Check Firestore rules at Firebase Console.');
+                    }
+
                     try {
                         await window.firebaseDB.enablePersistence({ synchronizeTabs: true });
                         console.log('[StorageEngine] Firestore offline persistence enabled.');
                     } catch (err) {
-                        if (err.code == 'failed-precondition') {
-                            console.warn('[StorageEngine] Multiple tabs open, persistence can only be enabled in one tab.');
-                        } else if (err.code == 'unimplemented') {
-                            console.warn('[StorageEngine] The current browser does not support offline persistence.');
+                        if (err.code === 'failed-precondition') {
+                            console.warn('[StorageEngine] Multiple tabs open — persistence enabled in one tab only.');
+                        } else if (err.code === 'unimplemented') {
+                            console.warn('[StorageEngine] Browser does not support offline persistence.');
+                        } else {
+                            console.warn('[StorageEngine] Persistence error (non-critical):', err.message);
                         }
+                        // Non-critical: continue without persistence
                     }
 
                     // Run initial sync/migration if not done yet
@@ -318,6 +333,8 @@ const StorageEngine = {
                     } catch (syncErr) {
                         console.error('[StorageEngine] Firebase sync error during init:', syncErr);
                     }
+                } else {
+                    console.warn('[StorageEngine] window.firebaseDB is NOT defined — Firebase not loaded. Data saved locally only.');
                 }
 
                 resolve();
@@ -2358,7 +2375,8 @@ async function handleStudentSubmit(printAfter = false) {
         }
     } catch (err) {
         console.error('Student save failed', err);
-        showNotification('حدث خطأ أثناء حفظ الطالب: ' + (err.message || err), 'error');
+        const errDetail = err instanceof Error ? (err.message || err.name) : String(err);
+        showNotification('حدث خطأ أثناء حفظ الطالب: ' + errDetail, 'error');
     } finally {
         if (submitBtn) {
             submitBtn.disabled = false;
@@ -9010,7 +9028,10 @@ async function clearAllStudents() {
 //  إرسال بيانات Firebase وربطها فعلياً (كما هو متفق).
 // ============================================================
 function getStudentTrackingLink(qrCode) {
-    const base = (db.settings && db.settings.trackingBaseUrl) || window.location.origin;
+    let base = (db.settings && db.settings.trackingBaseUrl) || window.location.origin;
+    if (!base || base === 'null' || base.startsWith('file://') || base.includes('localhost') || base.includes('127.0.0.1')) {
+        base = 'https://syfather.web.app';
+    }
     return `${base.replace(/\/$/, '')}/student.html?id=${qrCode}`;
 }
 
