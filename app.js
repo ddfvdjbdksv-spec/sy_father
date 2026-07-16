@@ -254,13 +254,7 @@ function sortStudentsArabic(students) {
 const StorageEngine = {
     db: null,
     async init() {
-        return new Promise((resolve, reject) => {
-            // ✅ إصلاح تجمّد الواجهة: لو الـ IndexedDB اتقفلت بسبب اتصال قديم مفتوح في
-            // تاب تاني (onblocked)، أو أي سبب تاني خلاها متعلّقة، كان الـ Promise
-            // ده فاضل معلّق للأبد بدون resolve ولا reject — وده كان بيوقف تحميل
-            // البرنامج بالكامل حتى لو كل البيانات موجودة محلياً. دلوقتي بنحط:
-            //   1) معالج onblocked يحاول يكمل عادي بدل ما يتجمد
-            //   2) مهلة أمان (safety timeout) لو حتى onblocked محصلش
+        return new Promise(async (resolve, reject) => {
             let settled = false;
             const safetyTimer = setTimeout(() => {
                 if (settled) return;
@@ -268,6 +262,7 @@ const StorageEngine = {
                 reject(new Error("IndexedDB timeout — قاعدة البيانات لم تستجب (تأكد من إغلاق أي تبويبات أخرى للنظام)"));
             }, 8000);
 
+            // Initialize IndexedDB local database
             const request = indexedDB.open("EduMasterLargeDB", 5);
 
             request.onerror = (e) => {
@@ -278,8 +273,6 @@ const StorageEngine = {
             };
 
             request.onblocked = () => {
-                // فيه اتصال قديم (تاب تاني مفتوح) بيمنع الترقية — منسيبش الشاشة متجمدة،
-                // هنستنى المهلة الأمان أعلاه، ولو نجح الاتصال بعدها هيكمل عادي
                 console.warn('[StorageEngine] IndexedDB open blocked by another open tab/connection.');
             };
 
@@ -297,22 +290,149 @@ const StorageEngine = {
                     if (!db.objectStoreNames.contains(t)) db.createObjectStore(t, { keyPath: "id" });
                 });
             };
-            request.onsuccess = (e) => {
-                if (settled) { try { e.target.result.close(); } catch(_){} return; } // وصلت متأخرة بعد التايم آوت
+
+            request.onsuccess = async (e) => {
+                if (settled) { try { e.target.result.close(); } catch(_){} return; }
                 settled = true;
                 clearTimeout(safetyTimer);
                 this.db = e.target.result;
-                // ✅ لو تاب تاني فتح نسخة جديدة من الداتابيز لاحقاً، امنع تعليق الاتصال الحالي
                 this.db.onversionchange = () => { try { this.db.close(); } catch(_){} };
+
+                // Now initialize Firestore Offline Persistence
+                if (window.firebaseDB) {
+                    try {
+                        await window.firebaseDB.enablePersistence({ synchronizeTabs: true });
+                        console.log('[StorageEngine] Firestore offline persistence enabled.');
+                    } catch (err) {
+                        if (err.code == 'failed-precondition') {
+                            console.warn('[StorageEngine] Multiple tabs open, persistence can only be enabled in one tab.');
+                        } else if (err.code == 'unimplemented') {
+                            console.warn('[StorageEngine] The current browser does not support offline persistence.');
+                        }
+                    }
+
+                    // Run initial sync/migration if not done yet
+                    try {
+                        await this.syncWithFirebase();
+                    } catch (syncErr) {
+                        console.error('[StorageEngine] Firebase sync error during init:', syncErr);
+                    }
+                }
+
                 resolve();
             };
         });
     },
 
-    async getAll(storeName) {
+    // Handles initial data migration to Firebase (IndexedDB -> Firestore)
+    // and subsequent startup pulls (Firestore -> IndexedDB)
+    async syncWithFirebase() {
+        if (!window.firebaseDB) return;
+        const tables = ['students', 'attendance', 'exams', 'scores', 'expenses', 'handouts', 'studentHandouts', 'materials', 'quizzes', 'rewards', 'payments', 'waQueue', 'groups', 'cycles', 'absenceSessions', 'dailyTreasuryArchives', 'staff', 'shifts', 'courseCodes', 'platformCourses', 'platformSubscriptions'];
+
+        const migratedFlag = localStorage.getItem('edu_firebase_migrated');
+        if (migratedFlag !== 'true') {
+            console.log('[StorageEngine] Starting initial migration of local IndexedDB data to Firebase...');
+            
+            // 1. Upload settings & grades list first if they exist
+            const settings = localStorage.getItem('edu_master_settings');
+            if (settings) {
+                try {
+                    await window.firebaseDB.collection('app_config').doc('settings').set(JSON.parse(settings));
+                } catch(e) { console.error('Migration settings error:', e); }
+            }
+            const grades = localStorage.getItem('edu_grades_list');
+            if (grades) {
+                try {
+                    await window.firebaseDB.collection('app_config').doc('grades_list').set({ list: JSON.parse(grades) });
+                } catch(e) { console.error('Migration grades error:', e); }
+            }
+
+            // 2. Upload each IndexedDB table to Firestore
+            for (const table of tables) {
+                const localData = await this.getAllLocal(table);
+                if (localData && localData.length > 0) {
+                    console.log(`[StorageEngine] Migrating ${localData.length} items from table "${table}"...`);
+                    // Upload in batches of 500
+                    let batch = window.firebaseDB.batch();
+                    let count = 0;
+                    for (const item of localData) {
+                        if (!item.id) continue;
+                        const ref = window.firebaseDB.collection(table).doc(String(item.id));
+                        batch.set(ref, item);
+                        count++;
+                        if (count === 500) {
+                            await batch.commit();
+                            batch = window.firebaseDB.batch();
+                            count = 0;
+                        }
+                    }
+                    if (count > 0) {
+                        await batch.commit();
+                    }
+                }
+            }
+
+            localStorage.setItem('edu_firebase_migrated', 'true');
+            console.log('[StorageEngine] Initial Firebase migration complete!');
+        } else {
+            // Already migrated, pull latest from Firestore to overwrite local IndexedDB (sync changes from other devices)
+            console.log('[StorageEngine] Syncing data from Firebase to local IndexedDB...');
+            
+            // 1. Sync settings & grades list from Firestore
+            try {
+                const settingsDoc = await window.firebaseDB.collection('app_config').doc('settings').get();
+                if (settingsDoc.exists) {
+                    localStorage.setItem('edu_master_settings', JSON.stringify(settingsDoc.data()));
+                }
+                const gradesDoc = await window.firebaseDB.collection('app_config').doc('grades_list').get();
+                if (gradesDoc.exists && gradesDoc.data().list) {
+                    localStorage.setItem('edu_grades_list', JSON.stringify(gradesDoc.data().list));
+                }
+            } catch (e) {
+                console.error('[StorageEngine] Error pulling app_config from Firebase:', e);
+            }
+
+            // 2. Pull collections
+            for (const table of tables) {
+                try {
+                    const snap = await window.firebaseDB.collection(table).get();
+                    const items = snap.docs.map(doc => doc.data());
+                    await this.overwriteStore(table, items);
+                } catch (tableErr) {
+                    console.error(`[StorageEngine] Error syncing table "${table}" from Firebase:`, tableErr);
+                }
+            }
+            console.log('[StorageEngine] Local IndexedDB updated from Firebase.');
+        }
+    },
+
+    // Helper to overwrite local IndexedDB store
+    async overwriteStore(storeName, items) {
         return new Promise((resolve) => {
             if (!this.db || !this.db.objectStoreNames.contains(storeName)) {
-                console.warn(`Store ${storeName} not found or DB not ready.`);
+                return resolve(false);
+            }
+            const transaction = this.db.transaction([storeName], "readwrite");
+            const store = transaction.objectStore(storeName);
+            store.clear();
+            items.forEach(item => {
+                try {
+                    store.put(item);
+                } catch (e) {
+                    console.error(`Error putting item in local store ${storeName}:`, e);
+                }
+            });
+            transaction.oncomplete = () => resolve(true);
+            transaction.onerror = () => resolve(false);
+            transaction.onabort = () => resolve(false);
+        });
+    },
+
+    // Read directly from IndexedDB without Firebase
+    async getAllLocal(storeName) {
+        return new Promise((resolve) => {
+            if (!this.db || !this.db.objectStoreNames.contains(storeName)) {
                 return resolve([]);
             }
             const transaction = this.db.transaction([storeName], "readonly");
@@ -321,6 +441,11 @@ const StorageEngine = {
             request.onsuccess = () => resolve(request.result || []);
             request.onerror = () => resolve([]);
         });
+    },
+
+    async getAll(storeName) {
+        // Read from IndexedDB for maximum speed & offline support
+        return this.getAllLocal(storeName);
     },
 
     async getPaged(storeName, filter = {}, page = 0, pageSize = 50, searchTerm = '') {
@@ -386,11 +511,10 @@ const StorageEngine = {
         if (!Array.isArray(data)) data = [data];
         if (data.length === 0) return;
 
-        // Chunking for massive datasets to prevent transaction timeouts/memory issues
+        // 1. Save to local IndexedDB (keeps UI snappy and offline compatible)
         const CHUNK_SIZE = 5000;
         for (let i = 0; i < data.length; i += CHUNK_SIZE) {
             const chunk = data.slice(i, i + CHUNK_SIZE);
-            // ── محاولة 1: إدراج الـ chunk كامل في transaction واحدة ──
             const success = await new Promise((resolve) => {
                 const transaction = this.db.transaction([storeName], "readwrite");
                 const store = transaction.objectStore(storeName);
@@ -400,20 +524,16 @@ const StorageEngine = {
                 transaction.onabort = () => resolve(false);
             });
 
-            // ── محاولة 2 (fallback): إدراج كل سجل منفرداً لتجاوز ConstraintError على unique indexes ──
             if (!success) {
                 for (const item of chunk) {
                     await new Promise((resolve) => {
                         const tx = this.db.transaction([storeName], "readwrite");
                         const st = tx.objectStore(storeName);
-                        // إذا كان الجدول "students" وفيه unique index على qrCode،
-                        // نحذف السجل القديم بنفس الـ qrCode أولاً ثم نُضيف الجديد
                         if (storeName === 'students' && item.qrCode) {
                             const idxReq = st.index('qrCode').getKey(item.qrCode);
                             idxReq.onsuccess = (e) => {
                                 const existingKey = e.target.result;
                                 if (existingKey !== undefined && existingKey !== item.id) {
-                                    // حذف السجل القديم بالـ qrCode المتكرر قبل الإضافة
                                     st.delete(existingKey);
                                 }
                                 st.put(item);
@@ -423,10 +543,34 @@ const StorageEngine = {
                             st.put(item);
                         }
                         tx.oncomplete = () => resolve();
-                        tx.onerror = () => resolve();   // تجاهل الخطأ ومتابعة باقي السجلات
+                        tx.onerror = () => resolve();
                         tx.onabort = () => resolve();
                     });
                 }
+            }
+        }
+
+        // 2. Save to Firestore (Push to cloud)
+        if (window.firebaseDB) {
+            try {
+                let batch = window.firebaseDB.batch();
+                let batchCount = 0;
+                for (const item of data) {
+                    if (!item.id) continue;
+                    const ref = window.firebaseDB.collection(storeName).doc(String(item.id));
+                    batch.set(ref, item);
+                    batchCount++;
+                    if (batchCount === 500) {
+                        await batch.commit();
+                        batch = window.firebaseDB.batch();
+                        batchCount = 0;
+                    }
+                }
+                if (batchCount > 0) {
+                    await batch.commit();
+                }
+            } catch (fsErr) {
+                console.error(`[StorageEngine] Firestore save error for store ${storeName}:`, fsErr);
             }
         }
     },
@@ -434,10 +578,21 @@ const StorageEngine = {
     async delete(storeName, id) {
         if (!this.db) await this.init();
         if (!this.db || !this.db.objectStoreNames.contains(storeName)) return;
+
+        // 1. Delete from local IndexedDB
         const transaction = this.db.transaction([storeName], "readwrite");
         const store = transaction.objectStore(storeName);
         store.delete(id);
-        return new Promise((resolve) => transaction.oncomplete = () => resolve());
+        await new Promise((resolve) => transaction.oncomplete = () => resolve());
+
+        // 2. Delete from Firestore
+        if (window.firebaseDB) {
+            try {
+                await window.firebaseDB.collection(storeName).doc(String(id)).delete();
+            } catch (fsErr) {
+                console.error(`[StorageEngine] Firestore delete error for store ${storeName}:`, fsErr);
+            }
+        }
     },
 
     async get(storeName, id) {
@@ -706,6 +861,9 @@ const db = {
         }
 
         localStorage.setItem('edu_master_settings', JSON.stringify(this._settings));
+        if (window.firebaseDB) {
+            window.firebaseDB.collection('app_config').doc('settings').set(this._settings).catch(e => console.error("Firebase settings sync error:", e));
+        }
         if (currentGrade) localStorage.setItem('edu_active_grade', currentGrade);
         if (currentGroupId) localStorage.setItem('edu_active_group', currentGroupId);
         if (this.dailyTreasuryLastArchiveDate) localStorage.setItem('dailyTreasuryLastArchiveDate', this.dailyTreasuryLastArchiveDate);
@@ -1314,6 +1472,9 @@ function saveGradesList() {
     gradesList = buildGradesList(gradesList);
     window.gradesList = gradesList;
     localStorage.setItem('edu_grades_list', JSON.stringify(gradesList));
+    if (window.firebaseDB) {
+        window.firebaseDB.collection('app_config').doc('grades_list').set({ list: gradesList }).catch(e => console.error("Firebase grades list sync error:", e));
+    }
 }
 
 // --- Grade Management ---

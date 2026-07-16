@@ -88,74 +88,78 @@
         </div>
     </div>
 
+    <!-- Firebase SDK (Compat Version) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
     <script>
         // ============================================================
         //  student.html — صفحة متابعة ولي الأمر / الطالب
         // ============================================================
-        //  🔌 نقطة ربط Firebase (لاحقاً فقط، بعد إرسال بيانات المشروع):
-        //  الدالة الوحيدة التي تحتاج تعديل هي fetchStudentTrackingData()
-        //  أدناه. حالياً تقرأ من نفس قاعدة بيانات المتصفح (IndexedDB) —
-        //  وهو ما يعمل فقط لو فُتح الرابط على نفس جهاز المدرّس (للتجربة).
-        //  عند الربط بـ Firebase، تُستبدل هذه الدالة بقراءة Real-Time
-        //  (onSnapshot) من مستند الطالب في Firestore عبر نفس الكود qrCode
-        //  المستخدم كمُعرّف في الرابط، ولن يحتاج أي جزء آخر من هذه
-        //  الصفحة للتعديل — العرض مبني بالفعل على شكل موحّد للبيانات.
-        // ============================================================
+        const firebaseConfig = {
+          apiKey: "AIzaSyBpEyl2yKbUPf8NQpsGLVISNzno1qJAedI",
+          authDomain: "syfather.firebaseapp.com",
+          projectId: "syfather",
+          storageBucket: "syfather.firebasestorage.app",
+          messagingSenderId: "929000000845",
+          appId: "1:929000000845:web:78407e4aafc771b7cafb04",
+          measurementId: "G-7BES6YHQQR"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const firebaseDB = firebase.firestore();
 
-        const DB_NAME = 'EduMasterLargeDB';
-        const DB_VERSION = 5;
-
-        function openLocalDB() {
-            return new Promise((resolve, reject) => {
-                const req = indexedDB.open(DB_NAME, DB_VERSION);
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
-                req.onupgradeneeded = () => reject(new Error('no-existing-db'));
-            });
-        }
-
-        function getAll(db, storeName) {
-            return new Promise((resolve, reject) => {
-                try {
-                    const tx = db.transaction(storeName, 'readonly');
-                    const store = tx.objectStore(storeName);
-                    const req = store.getAll();
-                    req.onsuccess = () => resolve(req.result || []);
-                    req.onerror = () => reject(req.error);
-                } catch (e) { resolve([]); }
-            });
-        }
-
-        // ── نقطة الربط المستقبلية مع Firebase ──────────────────────
+        // ── نقطة الربط مع Firebase ──────────────────────
         async function fetchStudentTrackingData(code) {
             try {
-                const db = await openLocalDB();
-                const [students, attendance, payments] = await Promise.all([
-                    getAll(db, 'students'),
-                    getAll(db, 'attendance'),
-                    getAll(db, 'payments')
-                ]);
-                const student = students.find(s => String(s.qrCode) === String(code));
-                if (!student) return null;
-
-                const groups = await getAll(db, 'groups');
-                const group = groups.find(g => String(g.id) === String(student.groupId));
-
-                const atts = attendance.filter(a => String(a.studentId) === String(student.id));
+                // 1. Fetch student by qrCode
+                const studentSnap = await firebaseDB.collection('students')
+                    .where('qrCode', '==', String(code))
+                    .limit(1)
+                    .get();
+                
+                if (studentSnap.empty) {
+                    console.warn('No student found with QR code:', code);
+                    return null;
+                }
+                const studentDoc = studentSnap.docs[0];
+                const student = studentDoc.data();
+                
+                // 2. Fetch group
+                let group = null;
+                if (student.groupId) {
+                    const groupDoc = await firebaseDB.collection('groups').doc(String(student.groupId)).get();
+                    if (groupDoc.exists) {
+                        group = groupDoc.data();
+                    }
+                }
+                
+                // 3. Fetch attendance
+                const attendanceSnap = await firebaseDB.collection('attendance')
+                    .where('studentId', '==', String(student.id))
+                    .get();
+                const atts = attendanceSnap.docs.map(doc => doc.data());
+                
+                // 4. Fetch payments
+                const paymentsSnap = await firebaseDB.collection('payments')
+                    .where('studentId', '==', String(student.id))
+                    .get();
+                const pmts = paymentsSnap.docs.map(doc => doc.data());
+                
+                // 5. Calculations
                 const presentDays = atts.filter(a => a.status === 'present').length;
                 const absentDays = atts.filter(a => a.status === 'absent').length;
 
                 const today = new Date().toLocaleDateString('en-CA');
                 const todayAtt = atts.find(a => new Date(a.date).toLocaleDateString('en-CA') === today);
 
-                const studentPayments = payments
-                    .filter(p => String(p.studentId) === String(student.id) && p.category === 'اشتراك شهري')
+                const studentPayments = pmts
+                    .filter(p => p.category === 'اشتراك شهري')
                     .sort((a, b) => new Date(b.date) - new Date(a.date));
                 const lastPayment = studentPayments[0] || null;
 
                 return { student, group, presentDays, absentDays, todayAtt, lastPayment };
             } catch (e) {
-                console.warn('fetchStudentTrackingData:', e);
+                console.error('fetchStudentTrackingData error:', e);
                 return null;
             }
         }

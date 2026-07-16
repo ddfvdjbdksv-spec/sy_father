@@ -9,7 +9,7 @@
 //    5. أو: يُطبَّق تلقائياً بعد 10 ثوانٍ بدون تدخّل
 // ============================================================
 
-const CACHE_VERSION = 'edarat-eldroos-pwa-v22';
+const CACHE_VERSION = 'edarat-eldroos-pwa-v23';
 
 const APP_SHELL = [
   './',
@@ -41,9 +41,11 @@ const APP_SHELL = [
   './vendor/webfonts/fa-v4compatibility.woff2'
 ];
 
-// ✅ لم يعد هناك أي مكتبات خارجية (CDN) في المشروع — كل شيء مُستضاف محلياً
-// ضمن vendor/ أعلاه، فتم إلغاء EXTERNAL_LIBS نهائياً وقاعدة الشبكة الخاصة بها.
-const EXTERNAL_LIBS = [];
+// ✅ إضافة روابط مكتبات Firebase للـ External CDN لضمان كاش محلي أوفلاين
+const EXTERNAL_LIBS = [
+  'https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js',
+  'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js'
+];
 
 // ─── Install: تحميل كل ملفات الـ App Shell في الـ Cache ───
 self.addEventListener('install', (event) => {

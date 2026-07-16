@@ -3377,6 +3377,22 @@
              في انتظار الشبكة، وهو ما كان يجعل الشاشة تبدو وكأنها "محتاجة
              إنترنت" لفتح جزء كلمات المرور. -->
         <!-- ✅ تم استضافة كل المكتبات محلياً — لا يوجد أي اعتماد على الإنترنت لتشغيل الباركود/QR/التصوير -->
+        <!-- Firebase SDK (Compat Version) -->
+        <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+        <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+        <script>
+          const firebaseConfig = {
+            apiKey: "AIzaSyBpEyl2yKbUPf8NQpsGLVISNzno1qJAedI",
+            authDomain: "syfather.firebaseapp.com",
+            projectId: "syfather",
+            storageBucket: "syfather.firebasestorage.app",
+            messagingSenderId: "929000000845",
+            appId: "1:929000000845:web:78407e4aafc771b7cafb04",
+            measurementId: "G-7BES6YHQQR"
+          };
+          firebase.initializeApp(firebaseConfig);
+          window.firebaseDB = firebase.firestore();
+        </script>
         <script src="vendor/html5-qrcode.min.js" onerror="console.warn('html5-qrcode not available offline')"></script>
         <script src="vendor/qrcode.min.js" onerror="console.warn('qrcodejs not available offline')"></script>
         <script src="vendor/JsBarcode.all.min.js" onerror="console.warn('JsBarcode not available offline')"></script>
