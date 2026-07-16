@@ -6740,6 +6740,26 @@ function generatePrintCard(id) {
     document.getElementById('print-name').innerText = s.name;
     document.getElementById('print-grade').innerText = gradeName;
     document.getElementById('print-code-text').innerText = s.qrCode;
+
+    // Generate QR Code for parent tracking
+    const qrContainer = document.getElementById('print-qrcode');
+    if (qrContainer) {
+        qrContainer.innerHTML = '';
+        try {
+            new QRCode(qrContainer, {
+                text: getStudentTrackingLink(s.qrCode),
+                width: 130,
+                height: 130,
+                colorDark: "#000000",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.M
+            });
+        } catch(e) {
+            console.error('Error generating QR code in card modal:', e);
+            qrContainer.innerText = 'خطأ في إنشاء رمز QR';
+        }
+    }
+
     setTimeout(() => {
         JsBarcode("#barcode-canvas", s.qrCode, {
             format: "EAN13",
@@ -11476,12 +11496,13 @@ function generatePrintableIDCards(students, mode = 'normal') {
             '.card-header { background: linear-gradient(135deg, #4f46e5, #4338ca); color: #fff; padding: 8px 12px; }' +
             '.card-header .teacher-name { font-weight: 800; font-size: 0.95rem; line-height: 1.3; }' +
             '.card-header .teacher-spec { font-size: 0.65rem; opacity: 0.9; }' +
-            '.card-body { padding: 10px 12px; display: flex; flex-direction: column; flex: 1; }' +
-            '.info-row { font-size: 0.85rem; margin-bottom: 5px; color: #475569; }' +
+            '.card-body { padding: 8px 12px; display: flex; flex-direction: column; flex: 1; }' +
+            '.info-row { font-size: 0.78rem; margin-bottom: 3px; color: #475569; }' +
             '.info-row b { color: #1e293b; }' +
-            '.barcode-area { margin-top: auto; text-align: center; background: #f8fafc; padding: 5px; border-radius: 5px; }' +
+            '.barcode-area { margin-top: auto; text-align: center; background: #f8fafc; padding: 3px; border-radius: 4px; }' +
             '.barcode { width: 100% !important; height: auto !important; }' +
             '.grade-badge { position: absolute; top: 8px; left: 12px; font-size: 0.6rem; background: rgba(255,255,255,0.2); color: #fff; padding: 2px 8px; border-radius: 4px; }' +
+            '.qrcode-container img { max-width: 100%; height: auto; display: block; margin: 0 auto; }' +
             '@media print { body { padding: 0; } .page { padding: 10mm; } }'
         ) +
         '</style></head><body>';
@@ -11497,13 +11518,19 @@ function generatePrintableIDCards(students, mode = 'normal') {
                 '<div style="font-size: ' + (tFont * 0.7) + 'px; color: #333; margin-bottom: 3px;">' + gradeName + '</div>' +
                 '<div class="student-name">' + s.name + '</div>' +
                 '<div class="info-row">المجموعة: ' + (groupObj ? groupObj.name : '---') + ' | الكود: ' + s.qrCode + '</div>' +
-                '<div class="barcode-area">' +
-                '<svg class="barcode" ' +
-                'jsbarcode-value="' + s.qrCode + '" ' +
-                'jsbarcode-displayValue="true" ' +
-                'jsbarcode-height="' + tBCodeH + '" ' +
-                'jsbarcode-width="2" ' +
-                'jsbarcode-fontSize="' + (tFont * 0.8) + '"></svg>' +
+                '<div style="display: flex; justify-content: space-around; align-items: center; width: 100%; margin-top: 5px; gap: 10px;">' +
+                '  <div class="barcode-area" style="flex: 2; display: flex; justify-content: center;">' +
+                '    <svg class="barcode" ' +
+                '    jsbarcode-value="' + s.qrCode + '" ' +
+                '    jsbarcode-displayValue="true" ' +
+                '    jsbarcode-height="' + tBCodeH + '" ' +
+                '    jsbarcode-width="1.8" ' +
+                '    jsbarcode-fontSize="' + (tFont * 0.8) + '"></svg>' +
+                '  </div>' +
+                '  <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;">' +
+                '    <div class="qrcode-container" data-url="' + getStudentTrackingLink(s.qrCode) + '" style="width: ' + (parseInt(tBCodeH) + 10) + 'px; height: ' + (parseInt(tBCodeH) + 10) + 'px; display: flex; align-items: center; justify-content: center;"></div>' +
+                '    <span style="font-size: ' + (tFont * 0.55) + 'px; color: #64748b; font-weight: bold; margin-top: 2px; white-space: nowrap;">رابط المتابعة</span>' +
+                '  </div>' +
                 '</div>' +
                 '</div>' +
                 '</div>';
@@ -11522,21 +11549,26 @@ function generatePrintableIDCards(students, mode = 'normal') {
                     '<div class="grade-badge">' + gradeName + '</div>' +
                     '</div>' +
                     '<div class="card-body">' +
-                    '<div style="background: #f8fafc; padding: 8px; border-radius: 6px; margin-bottom: 10px; border-right: 4px solid #4f46e5;">' +
-                    '<span style="font-size: 0.7rem; color: #64748b; display: block;">اسم الطالب:</span>' +
-                    '<div style="font-weight: 800; font-size: 1.15rem; color: #1e293b; line-height: 1.2;">' + s.name + '</div>' +
+                    '<div style="background: #f8fafc; padding: 6px; border-radius: 6px; margin-bottom: 8px; border-right: 4px solid #4f46e5;">' +
+                    '<span style="font-size: 0.65rem; color: #64748b; display: block;">اسم الطالب:</span>' +
+                    '<div style="font-weight: 800; font-size: 1.05rem; color: #1e293b; line-height: 1.2;">' + s.name + '</div>' +
                     '</div>' +
-                    '<div class="info-row"><b>المجموعة:</b> ' + (groupObj ? groupObj.name : '---') + '</div>' +
-                    '<div class="info-row"><b>كود الطالب:</b> ' + s.qrCode + '</div>' +
-                    '<div class="barcode-area">' +
-                    '<svg class="barcode" ' +
-                    'jsbarcode-value="' + s.qrCode + '" ' +
-                    'jsbarcode-text="' + s.name + '" ' +
-                    'jsbarcode-displayValue="true" ' +
-                    'jsbarcode-textmargin="2" ' +
-                    'jsbarcode-height="35" ' +
-                    'jsbarcode-width="2" ' +
-                    'jsbarcode-fontSize="14"></svg>' +
+                    '<div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: auto; gap: 8px;">' +
+                    '  <div style="flex: 1; display: flex; flex-direction: column; gap: 2px;">' +
+                    '    <div class="info-row"><b>المجموعة:</b> ' + (groupObj ? groupObj.name : '---') + '</div>' +
+                    '    <div class="info-row"><b>الكود:</b> ' + s.qrCode + '</div>' +
+                    '    <div class="barcode-area">' +
+                    '      <svg class="barcode" ' +
+                    '      jsbarcode-value="' + s.qrCode + '" ' +
+                    '      jsbarcode-displayValue="false" ' +
+                    '      jsbarcode-height="25" ' +
+                    '      jsbarcode-width="1.8"></svg>' +
+                    '    </div>' +
+                    '  </div>' +
+                    '  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">' +
+                    '    <div class="qrcode-container" data-url="' + getStudentTrackingLink(s.qrCode) + '" style="width: 55px; height: 55px; display: flex; align-items: center; justify-content: center;"></div>' +
+                    '    <span style="font-size: 0.55rem; color: #64748b; font-weight: bold; white-space: nowrap;">رمز المتابعة</span>' +
+                    '  </div>' +
                     '</div>' +
                     '</div>' +
                     '</div>';
@@ -11546,9 +11578,10 @@ function generatePrintableIDCards(students, mode = 'normal') {
     }
 
     html += '<script src="' + new URL('vendor/JsBarcode.all.min.js', location.href).href + '"></script>' +
+        '<script src="' + new URL('vendor/qrcode.min.js', location.href).href + '"></script>' +
         '<script>' +
-        'function initBarcodes() {' +
-        '  if (typeof JsBarcode === "undefined") { setTimeout(initBarcodes, 50); return; }' +
+        'function initCodes() {' +
+        '  if (typeof JsBarcode === "undefined" || typeof QRCode === "undefined") { setTimeout(initCodes, 50); return; }' +
         '  const barcodes = document.querySelectorAll(".barcode");' +
         '  barcodes.forEach(el => { try {' +
         '    JsBarcode(el).init();' +
@@ -11561,9 +11594,22 @@ function generatePrintableIDCards(students, mode = 'normal') {
         '      el.removeAttribute("height");' +
         '    }' +
         '  } catch(e){ console.error(e); } });' +
+        '  const qrcodes = document.querySelectorAll(".qrcode-container");' +
+        '  qrcodes.forEach(el => { try {' +
+        '    const url = el.getAttribute("data-url");' +
+        '    el.innerHTML = "";' +
+        '    new QRCode(el, {' +
+        '      text: url,' +
+        '      width: el.clientWidth || el.offsetWidth || 55,' +
+        '      height: el.clientHeight || el.offsetHeight || 55,' +
+        '      colorDark: "#000000",' +
+        '      colorLight: "#ffffff",' +
+        '      correctLevel: QRCode.CorrectLevel.M' +
+        '    });' +
+        '  } catch(e){ console.error(e); } });' +
         '  setTimeout(() => { window.print(); window.close(); }, 500);' +
         '}' +
-        'window.onload = initBarcodes;' +
+        'window.onload = initCodes;' +
         '</script></body></html>';
 
     printWindow.document.write(html);
