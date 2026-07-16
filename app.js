@@ -1998,6 +1998,13 @@ function showSection(sectionId, btnEl) {
     if (sectionId === 'certificates') initCertificatesSection();
     if (sectionId === 'payments') { renderFinances(); renderMonthlySubscriptionTables(); }
     if (sectionId === 'receipts') { initReceiptsSection(); }
+    if (sectionId === 'backup') {
+        const input = document.getElementById('setting-tracking-url');
+        if (input) {
+            input.value = (db.settings && db.settings.trackingBaseUrl) || 'https://syfather.web.app';
+        }
+    }
+
 
     if (sectionId === 'make-exam') initMakeExamSection();
     if (sectionId === 'fast-grading') initFastGrading();
@@ -9034,6 +9041,32 @@ function getStudentTrackingLink(qrCode) {
     }
     return `${base.replace(/\/$/, '')}/student.html?id=${qrCode}`;
 }
+
+async function saveTrackingBaseUrl() {
+    const input = document.getElementById('setting-tracking-url');
+    if (!input) return;
+    const val = input.value.trim();
+    if (!val) {
+        showNotification('يرجى إدخال رابط صحيح لصفحة المتابعة', 'error');
+        return;
+    }
+    
+    // Save to settings
+    if (!db.settings) {
+        showNotification('تعذر تحديد المرحلة الحالية لحفظ الإعدادات', 'error');
+        return;
+    }
+    db.settings.trackingBaseUrl = val;
+    
+    try {
+        await db.save('__settings__');
+        showNotification('تم حفظ وتحديث رابط المتابعة بنجاح');
+    } catch (err) {
+        console.error('Save tracking url settings error:', err);
+        showNotification('حدث خطأ أثناء الحفظ', 'error');
+    }
+}
+
 
 function sendStudentTrackingWhatsApp(id) {
     const s = db.students.find(x => x.id === id);
