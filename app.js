@@ -269,7 +269,8 @@ const StorageEngine = {
                 if (settled) return;
                 settled = true;
                 clearTimeout(safetyTimer);
-                reject("IndexedDB error: " + e.target.errorCode);
+                console.error("IndexedDB open error:", request.error);
+                reject("IndexedDB error: " + (request.error ? request.error.message : 'Unknown'));
             };
 
             request.onblocked = () => {
@@ -295,8 +296,8 @@ const StorageEngine = {
                 if (settled) { try { e.target.result.close(); } catch(_){} return; }
                 settled = true;
                 clearTimeout(safetyTimer);
-                this.db = e.target.result;
-                this.db.onversionchange = () => { try { this.db.close(); } catch(_){} };
+                StorageEngine.db = e.target.result;
+                StorageEngine.db.onversionchange = () => { try { StorageEngine.db.close(); } catch(_){} };
 
                 // Now initialize Firestore Offline Persistence
                 if (window.firebaseDB) {
@@ -313,7 +314,7 @@ const StorageEngine = {
 
                     // Run initial sync/migration if not done yet
                     try {
-                        await this.syncWithFirebase();
+                        await StorageEngine.syncWithFirebase();
                     } catch (syncErr) {
                         console.error('[StorageEngine] Firebase sync error during init:', syncErr);
                     }
