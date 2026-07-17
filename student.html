@@ -6,215 +6,76 @@
     <meta name="theme-color" content="#2563eb">
     <title>صفحة متابعة الطالب</title>
     <link rel="icon" href="app-icon-192.png" type="image/png">
-    <!-- Font Awesome من CDN مباشرة — لا يعتمد على vendor محلي -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <style>
         *, *::before, *::after { box-sizing: border-box; }
-
         :root {
-            --primary: #2563eb;
-            --primary-dark: #1d4ed8;
-            --primary-light: #93c5fd;
-            --bg-light: #f1f5f9;
-            --border: #e5e7eb;
-            --text-muted: #64748b;
-            --text-main: #1f2937;
+            --primary: #2563eb; --primary-dark: #1d4ed8; --primary-light: #93c5fd;
+            --bg-light: #f1f5f9; --border: #e5e7eb;
+            --text-muted: #64748b; --text-main: #1f2937;
             --radius-xl: 16px;
             --shadow-sm: 0 1px 6px rgba(0,0,0,.08);
             --shadow-royal: 0 8px 32px rgba(37,99,235,.25);
         }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
-            background: var(--bg-light);
-            min-height: 100vh;
-            padding: 1.2rem;
-            margin: 0;
-        }
-
+        body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; background: var(--bg-light); min-height: 100vh; padding: 1.2rem; margin: 0; }
         .track-wrap { max-width: 640px; margin: 0 auto; }
-
-        /* ── Header ── */
-        .track-header {
-            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-            color: #fff;
-            border-radius: var(--radius-xl);
-            padding: 1.6rem 1.4rem;
-            box-shadow: var(--shadow-royal);
-            text-align: center;
-            margin-bottom: 1.2rem;
-        }
+        .track-header { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: #fff; border-radius: var(--radius-xl); padding: 1.6rem 1.4rem; box-shadow: var(--shadow-royal); text-align: center; margin-bottom: 1.2rem; }
         .track-header .brand { font-size: .85rem; opacity: .85; margin-bottom: .3rem; }
         .track-header h1 { font-size: 1.4rem; margin: 0 0 .3rem; }
         .track-header .sub { font-size: .9rem; opacity: .9; }
-
-        /* ── Cards ── */
-        .track-card {
-            background: #fff;
-            border-radius: var(--radius-xl);
-            box-shadow: var(--shadow-sm);
-            padding: 1.2rem 1.3rem;
-            margin-bottom: 1rem;
-        }
-        .track-card h2 {
-            font-size: 1rem;
-            color: var(--primary);
-            margin: 0 0 .9rem;
-            display: flex; align-items: center; gap: 8px;
-        }
-
-        /* ── Stats ── */
-        .stat-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: .8rem;
-        }
-        .stat-box {
-            background: var(--bg-light);
-            border-radius: 12px;
-            padding: .9rem;
-            text-align: center;
-        }
+        .track-card { background: #fff; border-radius: var(--radius-xl); box-shadow: var(--shadow-sm); padding: 1.2rem 1.3rem; margin-bottom: 1rem; }
+        .track-card h2 { font-size: 1rem; color: var(--primary); margin: 0 0 .9rem; display: flex; align-items: center; gap: 8px; }
+        .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .8rem; }
+        .stat-box { background: var(--bg-light); border-radius: 12px; padding: .9rem; text-align: center; }
         .stat-box .num { font-size: 1.4rem; font-weight: 800; color: var(--primary); }
         .stat-box .lbl { font-size: .78rem; color: var(--text-muted); margin-top: .2rem; }
-
-        /* ── Rows ── */
-        .row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: .55rem 0;
-            border-bottom: 1px dashed var(--border);
-            font-size: .92rem;
-        }
+        .row { display: flex; justify-content: space-between; align-items: center; padding: .55rem 0; border-bottom: 1px dashed var(--border); font-size: .92rem; }
         .row:last-child { border-bottom: none; }
         .row .k { color: var(--text-muted); }
         .row .v { font-weight: 700; }
-
-        /* ── Badges ── */
-        .badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 4px 12px;
-            border-radius: 99px;
-            font-weight: 700;
-            font-size: .8rem;
-        }
+        .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 99px; font-weight: 700; font-size: .8rem; }
         .badge.ok   { background: #dcfce7; color: #166534; }
         .badge.bad  { background: #fee2e2; color: #991b1b; }
         .badge.warn { background: #fff7ed; color: #c2410c; }
-
-        /* ── Notes ── */
-        .notes-box {
-            background: var(--bg-light);
-            border-radius: 12px;
-            padding: .9rem;
-            font-size: .9rem;
-            line-height: 1.8;
-            color: var(--text-main);
-            min-height: 50px;
-        }
-
-        /* ── Loading / Error ── */
+        .notes-box { background: var(--bg-light); border-radius: 12px; padding: .9rem; font-size: .9rem; line-height: 1.8; color: var(--text-main); min-height: 50px; }
         .state-msg { text-align: center; padding: 3rem 1rem; color: var(--text-muted); }
         .state-msg i { font-size: 2.4rem; color: var(--primary-light); margin-bottom: 1rem; display: block; }
-
-        /* ── Monthly Report ── */
-        .month-tabs {
-            display: flex;
-            flex-wrap: wrap;
-            gap: .4rem;
-            margin-bottom: 1rem;
-        }
-        .month-tab {
-            padding: .35rem .85rem;
-            border-radius: 99px;
-            border: 2px solid var(--primary);
-            color: var(--primary);
-            background: #fff;
-            cursor: pointer;
-            font-size: .8rem;
-            font-weight: 700;
-            transition: all .15s;
-        }
-        .month-tab.active, .month-tab:hover {
-            background: var(--primary);
-            color: #fff;
-        }
+        .month-tabs { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; }
+        .month-tab { padding: .35rem .85rem; border-radius: 99px; border: 2px solid var(--primary); color: var(--primary); background: #fff; cursor: pointer; font-size: .8rem; font-weight: 700; transition: all .15s; }
+        .month-tab.active, .month-tab:hover { background: var(--primary); color: #fff; }
         .month-report { display: none; }
         .month-report.active { display: block; }
-
-        .report-section-title {
-            font-size: .85rem;
-            font-weight: 800;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: .05em;
-            margin: .8rem 0 .4rem;
-        }
-
-        .exam-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: .45rem 0;
-            border-bottom: 1px dashed var(--border);
-            font-size: .88rem;
-        }
+        .report-section-title { font-size: .85rem; font-weight: 800; color: var(--text-muted); margin: .8rem 0 .4rem; }
+        .exam-row { display: flex; justify-content: space-between; align-items: center; padding: .45rem 0; border-bottom: 1px dashed var(--border); font-size: .88rem; }
         .exam-row:last-child { border-bottom: none; }
-        .exam-title { color: var(--text-main); }
-        .exam-score {
-            font-weight: 800;
-            padding: 2px 10px;
-            border-radius: 8px;
-            font-size: .85rem;
-        }
-        .exam-score.high  { background: #dcfce7; color: #166534; }
-        .exam-score.mid   { background: #fef9c3; color: #854d0e; }
-        .exam-score.low   { background: #fee2e2; color: #991b1b; }
-        .exam-score.null  { background: #f1f5f9; color: #94a3b8; }
-
-        .att-month-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: .5rem;
-            margin-top: .5rem;
-        }
-        .att-month-box {
-            background: var(--bg-light);
-            border-radius: 10px;
-            padding: .6rem .8rem;
-            text-align: center;
-        }
+        .exam-score { font-weight: 800; padding: 2px 10px; border-radius: 8px; font-size: .85rem; }
+        .exam-score.high { background: #dcfce7; color: #166534; }
+        .exam-score.mid  { background: #fef9c3; color: #854d0e; }
+        .exam-score.low  { background: #fee2e2; color: #991b1b; }
+        .exam-score.none { background: #f1f5f9; color: #94a3b8; }
+        .att-month-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem; margin-top: .5rem; }
+        .att-month-box { background: var(--bg-light); border-radius: 10px; padding: .6rem .8rem; text-align: center; }
         .att-month-box .num { font-size: 1.2rem; font-weight: 800; color: var(--primary); }
         .att-month-box .lbl { font-size: .72rem; color: var(--text-muted); }
-
         .no-data { text-align: center; color: var(--text-muted); font-size: .85rem; padding: 1rem 0; }
-
         .footer-note { text-align: center; font-size: .75rem; color: var(--text-muted); margin-top: 1.5rem; }
     </style>
 </head>
-
 <body>
 <div class="track-wrap" id="app-root">
-    <div class="state-msg" id="loading-state">
+    <div class="state-msg">
         <i class="fas fa-circle-notch fa-spin"></i>
         جاري تحميل بيانات الطالب...
     </div>
 </div>
 
-<!-- Firebase SDK من CDN مباشرة — يشتغل على أي مكان بدون vendor محلي -->
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<!-- Firebase من CDN رسمي -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"
+    onerror="document.getElementById('app-root').innerHTML='<div class=\'state-msg\'><i class=\'fas fa-wifi\'></i>تعذر تحميل Firebase. تحقق من الإنترنت.</div>'">
+</script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
 <script>
-// ============================================================
-//  student.html — صفحة متابعة ولي الأمر
-//  • Firebase من CDN (مش vendor محلي)
-//  • تقارير شهرية: حضور + امتحانات + دفعات لكل شهر
-// ============================================================
-
 const firebaseConfig = {
     apiKey: "AIzaSyBpEyl2yKbUPf8NQpsGLVISNzno1qJAedI",
     authDomain: "syfather.firebaseapp.com",
@@ -224,198 +85,192 @@ const firebaseConfig = {
     appId: "1:929000000845:web:78407e4aafc771b7cafb04"
 };
 
-let firebaseDB = null;
+let DB = null;
 
-function initFirebase() {
+function initFB() {
     try {
-        if (typeof firebase === 'undefined') {
-            throw new Error('Firebase SDK لم يُحمَّل — تحقق من الاتصال بالإنترنت');
-        }
+        if (typeof firebase === 'undefined') throw new Error('SDK missing');
         const app = firebase.apps.length ? firebase.apps[0] : firebase.initializeApp(firebaseConfig);
-        firebaseDB = app.firestore();
-        console.log('[Firebase] ✅ تمت التهيئة بنجاح');
-    } catch(e) {
-        console.error('[Firebase] ❌', e.message);
-        firebaseDB = null;
-    }
+        DB = app.firestore();
+        return true;
+    } catch(e) { console.error('Firebase init failed:', e); return false; }
 }
 
-// ── جلب كل بيانات الطالب ──────────────────────────────────
-async function fetchStudentData(code) {
-    if (!firebaseDB) return null;
+// ── جلب collection مع fallback للنوعين (string + number) ──
+// Firestore بيفرق بين "12345" و 12345 — بنجرب الاتنين
+async function queryBoth(collection, field, value) {
+    const strVal = String(value);
+    const numVal = Number(value);
+    const isNum  = !isNaN(numVal) && strVal !== '';
+
+    const results = [];
+
+    // جرب string دايمًا
     try {
-        // 1. الطالب
-        const snap = await firebaseDB.collection('students')
-            .where('qrCode', '==', String(code)).limit(1).get();
-        if (snap.empty) return null;
-        const student = snap.docs[0].data();
+        const snap = await DB.collection(collection).where(field, '==', strVal).get();
+        snap.docs.forEach(d => results.push(d.data()));
+    } catch(e) { console.warn('queryBoth string failed:', e); }
 
-        // 2. المجموعة
+    // جرب number لو القيمة رقمية
+    if (isNum && numVal !== Number(strVal === strVal)) {
+        try {
+            const snap2 = await DB.collection(collection).where(field, '==', numVal).get();
+            snap2.docs.forEach(d => {
+                // تجنب التكرار لو نفس الـ id
+                if (!results.some(r => String(r.id) === String(d.data().id))) {
+                    results.push(d.data());
+                }
+            });
+        } catch(e) { console.warn('queryBoth number failed:', e); }
+    }
+
+    return results;
+}
+
+async function fetchData(code) {
+    if (!DB) return null;
+    try {
+        // ── 1. الطالب — جرب string و number للـ qrCode ──
+        let studentArr = await queryBoth('students', 'qrCode', code);
+        if (!studentArr.length) {
+            console.warn('No student found for code:', code);
+            return null;
+        }
+        const s = studentArr[0];
+        const studentId     = s.id;          // الأصل (رقم أو string)
+        const studentIdStr  = String(s.id);
+        const studentIdNum  = Number(s.id);
+
+        // ── 2. المجموعة ──
         let group = null;
-        if (student.groupId) {
-            const gDoc = await firebaseDB.collection('groups').doc(String(student.groupId)).get();
-            if (gDoc.exists) group = gDoc.data();
+        if (s.groupId) {
+            try {
+                const gDoc = await DB.collection('groups').doc(String(s.groupId)).get();
+                if (gDoc.exists) group = gDoc.data();
+            } catch(e) {}
         }
 
-        // 3. الحضور
-        const attSnap = await firebaseDB.collection('attendance')
-            .where('studentId', '==', String(student.id)).get();
-        const atts = attSnap.docs.map(d => d.data());
+        // ── 3. الحضور — جرب string + number للـ studentId ──
+        const atts = await queryBoth('attendance', 'studentId', studentId);
 
-        // 4. الدفعات
-        const pmtSnap = await firebaseDB.collection('payments')
-            .where('studentId', '==', String(student.id)).get();
-        const pmts = pmtSnap.docs.map(d => d.data());
+        // ── 4. الدفعات ──
+        const pmts = await queryBoth('payments', 'studentId', studentId);
 
-        // 5. الدرجات
-        const scoresSnap = await firebaseDB.collection('scores')
-            .where('studentId', '==', String(student.id)).get();
-        const scores = scoresSnap.docs.map(d => d.data());
+        // ── 5. الدرجات ──
+        const scores = await queryBoth('scores', 'studentId', studentId);
 
-        // 6. الامتحانات (كل امتحانات الصف)
+        // ── 6. الامتحانات (بحسب الصف) ──
         let exams = [];
-        if (student.grade) {
-            const exSnap = await firebaseDB.collection('exams')
-                .where('grade', '==', student.grade).get();
-            exams = exSnap.docs.map(d => d.data());
+        if (s.grade) {
+            try {
+                const exSnap = await DB.collection('exams').where('grade', '==', s.grade).get();
+                exams = exSnap.docs.map(d => d.data());
+            } catch(e) {}
         }
 
-        return { student, group, atts, pmts, scores, exams };
+        console.log(`[student.html] student=${s.name}, atts=${atts.length}, pmts=${pmts.length}, scores=${scores.length}, exams=${exams.length}`);
+        return { s, group, atts, pmts, scores, exams };
+
     } catch(e) {
-        console.error('[fetchStudentData]', e);
+        console.error('fetchData error:', e);
         return null;
     }
 }
 
-// ── حساب إجماليات الحضور ──────────────────────────────────
-function calcAttendance(atts) {
-    const today = new Date().toLocaleDateString('en-CA');
-    const present = atts.filter(a => a.status === 'present').length;
-    const absent  = atts.filter(a => a.status === 'absent').length;
-    const todayAtt = atts.find(a => {
-        try { return new Date(a.date).toLocaleDateString('en-CA') === today; } catch{ return false; }
-    });
-    return { present, absent, todayAtt };
-}
+// ── Helpers ───────────────────────────────────────────────
+const GRADE_LABELS = {
+    prim1:'أولى ابتدائي', prim2:'ثانية ابتدائي', prim3:'ثالثة ابتدائي',
+    prim4:'رابعة ابتدائي', prim5:'خامسة ابتدائي', prim6:'سادسة ابتدائي',
+    prep1:'أولى إعدادي', prep2:'ثانية إعدادي', prep3:'ثالثة إعدادي',
+    '1':'أولى ثانوي', '2':'ثانية ثانوي', '3':'ثالثة ثانوي'
+};
 
-// ── استخراج الشهور المتاحة من الحضور + الدفعات ──────────
-function getMonths(atts, pmts) {
-    const monthsSet = new Set();
-    [...atts, ...pmts].forEach(r => {
-        try {
-            const d = new Date(r.date);
-            if (!isNaN(d)) monthsSet.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
-        } catch {}
-    });
-    return [...monthsSet].sort().reverse(); // الأحدث أولاً
-}
-
-// ── تنسيق اسم الشهر بالعربي ──────────────────────────────
-function formatMonthAr(ym) {
-    const [y, m] = ym.split('-');
-    const d = new Date(Number(y), Number(m)-1, 1);
-    return d.toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
-}
-
-// ── لون الدرجة ────────────────────────────────────────────
-function scoreClass(mark, maxMarks) {
-    if (mark === null || mark === undefined) return 'null';
-    const pct = (mark / (maxMarks || 100)) * 100;
-    if (pct >= 75) return 'high';
-    if (pct >= 50) return 'mid';
-    return 'low';
-}
-
-// ── Badges ────────────────────────────────────────────────
-function attendanceBadge(todayAtt) {
+function attBadge(todayAtt) {
     if (!todayAtt) return `<span class="badge warn"><i class="fas fa-clock"></i> لم يُسجَّل بعد اليوم</span>`;
-    if (todayAtt.status === 'present') return `<span class="badge ok"><i class="fas fa-check"></i> حاضر اليوم</span>`;
-    return `<span class="badge bad"><i class="fas fa-times"></i> غائب اليوم</span>`;
+    return todayAtt.status === 'present'
+        ? `<span class="badge ok"><i class="fas fa-check"></i> حاضر اليوم</span>`
+        : `<span class="badge bad"><i class="fas fa-times"></i> غائب اليوم</span>`;
 }
 
-function subscriptionBadge(paid) {
+function pmtBadge(paid) {
     return paid
         ? `<span class="badge ok"><i class="fas fa-check-circle"></i> مدفوع</span>`
         : `<span class="badge bad"><i class="fas fa-times-circle"></i> غير مدفوع</span>`;
 }
 
-// ── تبديل التقرير الشهري ─────────────────────────────────
+function scoreClass(mark, max) {
+    if (mark === null || mark === undefined) return 'none';
+    const p = (mark / (max || 100)) * 100;
+    return p >= 75 ? 'high' : p >= 50 ? 'mid' : 'low';
+}
+
+function getMonths(atts, pmts) {
+    const s = new Set();
+    [...atts, ...pmts].forEach(r => {
+        try {
+            const d = new Date(r.date);
+            if (!isNaN(d)) s.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+        } catch {}
+    });
+    return [...s].sort().reverse();
+}
+
+function monthLabel(ym) {
+    const [y,m] = ym.split('-');
+    return new Date(+y, +m-1, 1).toLocaleDateString('ar-EG', { month:'long', year:'numeric' });
+}
+
 function switchMonth(ym) {
     document.querySelectorAll('.month-tab').forEach(t => t.classList.toggle('active', t.dataset.ym === ym));
     document.querySelectorAll('.month-report').forEach(r => r.classList.toggle('active', r.dataset.ym === ym));
 }
+window.switchMonth = switchMonth;
 
-// ── بناء تقرير شهر معين ──────────────────────────────────
-function buildMonthReport(ym, atts, pmts, scores, exams, studentId) {
+function buildMonthHTML(ym, atts, pmts, scores, exams, studentId) {
     const [y, m] = ym.split('-').map(Number);
+    const inMonth = r => { try { const d = new Date(r.date); return d.getFullYear()===y && d.getMonth()+1===m; } catch { return false; } };
 
-    // حضور الشهر
-    const monthAtts = atts.filter(a => {
-        try { const d = new Date(a.date); return d.getFullYear()===y && d.getMonth()+1===m; } catch { return false; }
-    });
-    const present = monthAtts.filter(a => a.status === 'present').length;
-    const absent  = monthAtts.filter(a => a.status === 'absent').length;
+    const mAtts  = atts.filter(inMonth);
+    const mPmts  = pmts.filter(inMonth);
+    const present = mAtts.filter(a => a.status === 'present').length;
+    const absent  = mAtts.filter(a => a.status === 'absent').length;
+    const paid    = mPmts.some(p => p.category === 'اشتراك شهري');
+    const paidAmt = mPmts.filter(p => p.category === 'اشتراك شهري').reduce((s,p) => s + (+p.amount||0), 0);
 
-    // دفعات الشهر
-    const monthPmts = pmts.filter(p => {
-        try { const d = new Date(p.date); return d.getFullYear()===y && d.getMonth()+1===m; } catch { return false; }
-    });
-    const paid = monthPmts.some(p => p.category === 'اشتراك شهري');
-    const totalPaid = monthPmts
-        .filter(p => p.category === 'اشتراك شهري')
-        .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-
-    // امتحانات الشهر (حسب تاريخ إنشاء الامتحان أو id)
-    const monthExams = exams.filter(e => {
-        try {
-            const d = new Date(e.id); // id = Date.now()
-            return d.getFullYear()===y && d.getMonth()+1===m;
-        } catch { return false; }
-    });
-    const studentScores = scores.filter(sc => String(sc.studentId) === String(studentId));
-
-    const examsHTML = monthExams.length === 0
-        ? `<div class="no-data">لا توجد امتحانات مسجلة هذا الشهر</div>`
-        : monthExams.map(ex => {
-            const sc = studentScores.find(s => String(s.examId) === String(ex.id));
-            const mark = sc ? sc.mark : null;
-            const cls = scoreClass(mark, ex.maxMarks);
-            const display = mark === null || mark === undefined
-                ? 'غائب / لم يُرصد'
-                : `${mark} / ${ex.maxMarks}`;
-            return `
-                <div class="exam-row">
-                    <span class="exam-title">${ex.title || 'امتحان'}</span>
-                    <span class="exam-score ${cls}">${display}</span>
-                </div>`;
+    // امتحانات الشهر (id = Date.now عند الإنشاء)
+    const mExams = exams.filter(e => { try { const d=new Date(+e.id); return d.getFullYear()===y && d.getMonth()+1===m; } catch{return false;} });
+    const sidStr = String(studentId);
+    const examsHTML = !mExams.length
+        ? `<div class="no-data">لا توجد امتحانات هذا الشهر</div>`
+        : mExams.map(ex => {
+            const sc = scores.find(s => String(s.examId) === String(ex.id) && String(s.studentId) === sidStr);
+            const mark = sc?.mark ?? null;
+            const display = mark === null ? 'لم يُرصد' : `${mark} / ${ex.maxMarks||'?'}`;
+            return `<div class="exam-row">
+                <span>${ex.title||'امتحان'}</span>
+                <span class="exam-score ${scoreClass(mark, ex.maxMarks)}">${display}</span>
+            </div>`;
         }).join('');
 
     return `
         <div class="report-section-title"><i class="fas fa-calendar-alt"></i> الحضور</div>
         <div class="att-month-grid">
-            <div class="att-month-box"><div class="num">${present}</div><div class="lbl">أيام الحضور</div></div>
-            <div class="att-month-box"><div class="num">${absent}</div><div class="lbl">أيام الغياب</div></div>
+            <div class="att-month-box"><div class="num">${present}</div><div class="lbl">حضور</div></div>
+            <div class="att-month-box"><div class="num">${absent}</div><div class="lbl">غياب</div></div>
         </div>
-
-        <div class="report-section-title" style="margin-top:1.1rem"><i class="fas fa-wallet"></i> الاشتراك</div>
-        <div class="row"><span class="k">حالة السداد</span><span class="v">${subscriptionBadge(paid)}</span></div>
-        ${totalPaid > 0 ? `<div class="row"><span class="k">المبلغ المدفوع</span><span class="v">${totalPaid} ج</span></div>` : ''}
-
-        <div class="report-section-title" style="margin-top:1.1rem"><i class="fas fa-file-alt"></i> الامتحانات والدرجات</div>
-        ${examsHTML}
-    `;
+        <div class="report-section-title" style="margin-top:1rem"><i class="fas fa-wallet"></i> الاشتراك</div>
+        <div class="row"><span class="k">السداد</span><span class="v">${pmtBadge(paid)}</span></div>
+        ${paidAmt > 0 ? `<div class="row"><span class="k">المبلغ</span><span class="v">${paidAmt} ج</span></div>` : ''}
+        <div class="report-section-title" style="margin-top:1rem"><i class="fas fa-file-alt"></i> الامتحانات</div>
+        ${examsHTML}`;
 }
 
-// ── Render الصفحة الكاملة ─────────────────────────────────
+// ── Render ────────────────────────────────────────────────
 function render(data) {
     const root = document.getElementById('app-root');
-
     if (!data) {
         root.innerHTML = `
-            <div class="track-header">
-                <div class="brand">نظام إدارة الدروس</div>
-                <h1>صفحة متابعة الطالب</h1>
-            </div>
+            <div class="track-header"><div class="brand">نظام إدارة الدروس</div><h1>متابعة الطالب</h1></div>
             <div class="track-card state-msg">
                 <i class="fas fa-user-slash"></i>
                 لم يتم العثور على بيانات هذا الطالب.<br>
@@ -424,107 +279,72 @@ function render(data) {
         return;
     }
 
-    const { student: s, group: g, atts, pmts, scores, exams } = data;
-
-    // إجماليات
-    const { present, absent, todayAtt } = calcAttendance(atts);
-    const allPmts = pmts.filter(p => p.category === 'اشتراك شهري').sort((a,b) => new Date(b.date)-new Date(a.date));
-    const lastPmt = allPmts[0] || null;
+    const { s, group, atts, pmts, scores, exams } = data;
+    const today    = new Date().toLocaleDateString('en-CA');
+    const present  = atts.filter(a => a.status==='present').length;
+    const absent   = atts.filter(a => a.status==='absent').length;
+    const todayAtt = atts.find(a => { try { return new Date(a.date).toLocaleDateString('en-CA')===today; } catch{return false;} });
+    const lastPmt  = pmts.filter(p => p.category==='اشتراك شهري').sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
     const lastPmtDate = lastPmt ? new Date(lastPmt.date).toLocaleDateString('ar-EG') : '---';
 
-    // grade label بسيط
-    const gradeLabels = {
-        'prim1':'أولى ابتدائي','prim2':'ثانية ابتدائي','prim3':'ثالثة ابتدائي',
-        'prim4':'رابعة ابتدائي','prim5':'خامسة ابتدائي','prim6':'سادسة ابتدائي',
-        'prep1':'أولى إعدادي','prep2':'ثانية إعدادي','prep3':'ثالثة إعدادي',
-        '1':'أولى ثانوي','2':'ثانية ثانوي','3':'ثالثة ثانوي'
-    };
-    const gradeStr = gradeLabels[s.grade] || s.grade || '---';
-    const groupStr = g ? g.name : 'بدون مجموعة';
-
-    // الشهور
     const months = getMonths(atts, pmts);
-    const hasMonths = months.length > 0;
-
-    const monthTabsHTML = hasMonths
-        ? months.map((ym, i) => `<button class="month-tab ${i===0?'active':''}" data-ym="${ym}" onclick="switchMonth('${ym}')">${formatMonthAr(ym)}</button>`).join('')
-        : '';
-
-    const monthReportsHTML = hasMonths
-        ? months.map((ym, i) => `
-            <div class="month-report ${i===0?'active':''}" data-ym="${ym}">
-                ${buildMonthReport(ym, atts, pmts, scores, exams, s.id)}
-            </div>`).join('')
-        : '<div class="no-data">لا توجد بيانات شهرية مسجلة بعد.</div>';
+    const monthTabsHTML   = months.map((ym,i) => `<button class="month-tab ${i===0?'active':''}" data-ym="${ym}" onclick="switchMonth('${ym}')">${monthLabel(ym)}</button>`).join('');
+    const monthReportsHTML = months.map((ym,i) => `<div class="month-report ${i===0?'active':''}" data-ym="${ym}">${buildMonthHTML(ym, atts, pmts, scores, exams, s.id)}</div>`).join('');
 
     root.innerHTML = `
         <div class="track-header">
             <div class="brand"><i class="fas fa-graduation-cap"></i> نظام إدارة الدروس</div>
             <h1>${s.name}</h1>
-            <div class="sub">${gradeStr} — ${groupStr}</div>
+            <div class="sub">${GRADE_LABELS[s.grade]||s.grade||'---'} — ${group?.name||'بدون مجموعة'}</div>
         </div>
 
-        <!-- الحضور الإجمالي -->
         <div class="track-card">
             <h2><i class="fas fa-calendar-check"></i> الحضور الإجمالي</h2>
             <div class="stat-grid">
                 <div class="stat-box"><div class="num">${present}</div><div class="lbl">أيام الحضور</div></div>
                 <div class="stat-box"><div class="num">${absent}</div><div class="lbl">أيام الغياب</div></div>
             </div>
-            <div style="margin-top:.9rem;text-align:center;">${attendanceBadge(todayAtt)}</div>
+            <div style="margin-top:.9rem;text-align:center;">${attBadge(todayAtt)}</div>
         </div>
 
-        <!-- الاشتراك -->
         <div class="track-card">
             <h2><i class="fas fa-wallet"></i> الاشتراك الشهري</h2>
-            <div class="row"><span class="k">الحالة</span><span class="v">${subscriptionBadge(!!lastPmt)}</span></div>
-            <div class="row"><span class="k">آخر عملية سداد</span><span class="v">${lastPmtDate}</span></div>
+            <div class="row"><span class="k">الحالة</span><span class="v">${pmtBadge(!!lastPmt)}</span></div>
+            <div class="row"><span class="k">آخر سداد</span><span class="v">${lastPmtDate}</span></div>
         </div>
 
-        <!-- الأداء -->
         <div class="track-card">
             <h2><i class="fas fa-star"></i> نقاط الأداء</h2>
-            <div class="row"><span class="k">الرصيد الحالي</span><span class="v">${s.points || 0} 💎</span></div>
+            <div class="row"><span class="k">الرصيد</span><span class="v">${s.points||0} 💎</span></div>
         </div>
 
-        <!-- ملاحظات -->
         <div class="track-card">
             <h2><i class="fas fa-comment-dots"></i> ملاحظات المدرس</h2>
-            <div class="notes-box">${s.teacherNotes || 'لا توجد ملاحظات جديدة حالياً.'}</div>
+            <div class="notes-box">${s.teacherNotes||'لا توجد ملاحظات حالياً.'}</div>
         </div>
 
-        <!-- التقارير الشهرية -->
         <div class="track-card">
             <h2><i class="fas fa-chart-bar"></i> التقارير الشهرية</h2>
-            <div class="month-tabs">${monthTabsHTML}</div>
-            ${monthReportsHTML}
+            ${months.length ? `<div class="month-tabs">${monthTabsHTML}</div>${monthReportsHTML}` : '<div class="no-data">لا توجد بيانات شهرية بعد.</div>'}
         </div>
 
-        <div class="footer-note">كود المتابعة: ${s.qrCode}</div>
-    `;
+        <div class="footer-note">كود المتابعة: ${s.qrCode}</div>`;
 }
 
-// ── Entry Point ───────────────────────────────────────────
-(async function init() {
-    initFirebase();
-
-    if (!firebaseDB) {
+// ── Main ──────────────────────────────────────────────────
+(async () => {
+    if (!initFB()) {
         document.getElementById('app-root').innerHTML = `
             <div class="track-card state-msg">
                 <i class="fas fa-wifi" style="color:#ef4444"></i>
                 تعذر الاتصال بقاعدة البيانات.<br>
-                <small style="color:#94a3b8;margin-top:.5rem;display:block;">تحقق من اتصالك بالإنترنت وأعد تحميل الصفحة.</small>
+                <small>تحقق من اتصالك بالإنترنت وأعد تحميل الصفحة.</small>
             </div>`;
         return;
     }
-
-    const code = new URLSearchParams(window.location.search).get('id');
-    if (!code) {
-        render(null);
-        return;
-    }
-
-    const data = await fetchStudentData(code);
+    const code = new URLSearchParams(location.search).get('id');
+    if (!code) { render(null); return; }
+    const data = await fetchData(code);
     render(data);
 })();
 </script>
