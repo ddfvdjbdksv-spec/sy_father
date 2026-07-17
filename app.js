@@ -303,16 +303,9 @@ const StorageEngine = {
 
                 // Now initialize Firestore Offline Persistence
                 if (window.firebaseDB) {
-                    console.log('[Firebase] ✅ تم اكتشاف Firebase — جارٍ اختبار الاتصال بـ Firestore...');
-                    // Test write to verify Firestore rules allow access
-                    try {
-                        await window.firebaseDB.collection('app_config').doc('heartbeat').set({ ts: Date.now() });
-                        console.log('[Firebase] ✅ اختبار الكتابة في Firestore نجح — قواعد الأمان تسمح بالوصول.');
-                    } catch (testErr) {
-                        console.error('[Firebase] ❌ اختبار الكتابة في Firestore فشل:', testErr.code, testErr.message);
-                        console.warn('[Firebase] ⚠️ البيانات ستُحفظ محلياً فقط (IndexedDB). تحقق من قواعد Firestore في Firebase Console.');
-                    }
-
+                    if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('checking');
+                    console.log('[Firebase] ✅ تم اكتشاف Firebase — جارٍ تفعيل التخزين المؤقت Offline لـ Firestore...');
+                    
                     try {
                         await window.firebaseDB.enablePersistence({ synchronizeTabs: true });
                         console.log('[Firebase] ✅ تم تفعيل التخزين المؤقت Offline لـ Firestore.');
@@ -324,8 +317,18 @@ const StorageEngine = {
                         } else {
                             console.warn('[Firebase] ⚠️ خطأ في تفعيل Persistence (غير حرج):', err.code, err.message);
                         }
-                        // Non-critical: continue without persistence
                     }
+
+                    // Test write to verify Firestore rules in background without blocking startup flow
+                    window.firebaseDB.collection('app_config').doc('heartbeat').set({ ts: Date.now() })
+                        .then(() => {
+                            console.log('[Firebase] ✅ اختبار الكتابة في Firestore نجح — قواعد الأمان تسمح بالوصول.');
+                        })
+                        .catch((testErr) => {
+                            console.error('[Firebase] ❌ اختبار الكتابة في Firestore فشل:', testErr.code, testErr.message);
+                            console.warn('[Firebase] ⚠️ البيانات ستُحفظ محلياً فقط (IndexedDB). تحقق من قواعد Firestore في Firebase Console.');
+                            if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('error');
+                        });
 
                     // Run initial sync/migration if not done yet
                     try {
@@ -335,6 +338,7 @@ const StorageEngine = {
                     }
                 } else {
                     console.warn('[Firebase] ⚠️ window.firebaseDB غير معرَّف — Firebase لم يُحمَّل أو فشل. البيانات محلية فقط.');
+                    if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('offline');
                 }
 
                 resolve();
@@ -344,98 +348,114 @@ const StorageEngine = {
 
     // Handles initial data migration to Firebase (IndexedDB -> Firestore)
     // and subsequent startup pulls (Firestore -> IndexedDB)
-    async syncWithFirebase() {
-        if (!window.firebaseDB) return;
+    // forcePull=true → يتجاهل علامة الترحيل ويسحب من السحابة مباشرة
+    async syncWithFirebase(forcePull = false) {
+        if (!window.firebaseDB) {
+            if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('offline');
+            return;
+        }
+
+        if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('syncing');
+
         const tables = ['students', 'attendance', 'exams', 'scores', 'expenses', 'handouts', 'studentHandouts', 'materials', 'quizzes', 'rewards', 'payments', 'waQueue', 'groups', 'cycles', 'absenceSessions', 'dailyTreasuryArchives', 'staff', 'shifts', 'courseCodes', 'platformCourses', 'platformSubscriptions'];
 
+        // فحص وجود بيانات محلية في الجداول الرئيسية
+        let hasLocalData = false;
+        for (const table of ['students', 'groups', 'attendance']) {
+            const data = await this.getAllLocal(table);
+            if (data && data.length > 0) { hasLocalData = true; break; }
+        }
+
         const migratedFlag = localStorage.getItem('edu_firebase_migrated');
-        if (migratedFlag !== 'true') {
-            console.log('[Firebase] 🚀 بدء الترحيل الأولي من IndexedDB المحلي إلى Firebase...');
-            
-            // 1. Upload settings & grades list first if they exist
-            const settings = localStorage.getItem('edu_master_settings');
-            if (settings) {
-                try {
-                    await window.firebaseDB.collection('app_config').doc('settings').set(JSON.parse(settings));
-                    console.log('[Firebase] ✅ تم ترحيل الإعدادات (settings) إلى Firebase.');
-                } catch(e) { console.error('[Firebase] ❌ خطأ في ترحيل الإعدادات:', e.code, e.message); }
-            }
-            const grades = localStorage.getItem('edu_grades_list');
-            if (grades) {
-                try {
-                    await window.firebaseDB.collection('app_config').doc('grades_list').set({ list: JSON.parse(grades) });
-                    console.log('[Firebase] ✅ تم ترحيل قائمة المراحل (grades_list) إلى Firebase.');
-                } catch(e) { console.error('[Firebase] ❌ خطأ في ترحيل قائمة المراحل:', e.code, e.message); }
-            }
 
-            // 2. Upload each IndexedDB table to Firestore
-            for (const table of tables) {
-                const localData = await this.getAllLocal(table);
-                if (localData && localData.length > 0) {
-                    console.log(`[Firebase] 📤 جارٍ ترحيل ${localData.length} سجل من جدول "${table}"...`);
-                    // Upload in batches of 500
-                    let batch = window.firebaseDB.batch();
-                    let count = 0;
-                    let totalUploaded = 0;
-                    for (const item of localData) {
-                        if (!item.id) continue;
-                        const ref = window.firebaseDB.collection(table).doc(String(item.id));
-                        batch.set(ref, item);
-                        count++;
-                        if (count === 500) {
-                            await batch.commit();
-                            totalUploaded += count;
-                            console.log(`[Firebase] ✅ رُفع ${totalUploaded}/${localData.length} من "${table}"`);
-                            batch = window.firebaseDB.batch();
-                            count = 0;
+        try {
+            // إذا جهاز جديد بدون بيانات محلية، أو طلب سحب إجباري → اسحب من السحابة
+            const shouldPull = forcePull || migratedFlag === 'true' || !hasLocalData;
+
+            if (!shouldPull) {
+                // جهاز لديه بيانات محلية ولم يُرحَّل بعد → ارفع إلى السحابة
+                console.log('[Firebase] 🚀 بدء الترحيل الأولي من IndexedDB المحلي إلى Firebase...');
+
+                const settings = localStorage.getItem('edu_master_settings');
+                if (settings) {
+                    try {
+                        await window.firebaseDB.collection('app_config').doc('settings').set(JSON.parse(settings));
+                        console.log('[Firebase] ✅ تم ترحيل الإعدادات إلى Firebase.');
+                    } catch(e) { console.error('[Firebase] ❌ خطأ في ترحيل الإعدادات:', e.code, e.message); }
+                }
+                const grades = localStorage.getItem('edu_grades_list');
+                if (grades) {
+                    try {
+                        await window.firebaseDB.collection('app_config').doc('grades_list').set({ list: JSON.parse(grades) });
+                        console.log('[Firebase] ✅ تم ترحيل قائمة المراحل إلى Firebase.');
+                    } catch(e) { console.error('[Firebase] ❌ خطأ في ترحيل قائمة المراحل:', e.code, e.message); }
+                }
+
+                for (const table of tables) {
+                    const localData = await this.getAllLocal(table);
+                    if (localData && localData.length > 0) {
+                        console.log(`[Firebase] 📤 جارٍ ترحيل ${localData.length} سجل من جدول "${table}"...`);
+                        let batch = window.firebaseDB.batch();
+                        let count = 0, totalUploaded = 0;
+                        for (const item of localData) {
+                            if (!item.id) continue;
+                            batch.set(window.firebaseDB.collection(table).doc(String(item.id)), item);
+                            count++;
+                            if (count === 500) {
+                                await batch.commit();
+                                totalUploaded += count;
+                                batch = window.firebaseDB.batch();
+                                count = 0;
+                            }
                         }
+                        if (count > 0) { await batch.commit(); totalUploaded += count; }
+                        console.log(`[Firebase] ✅ اكتمل ترحيل "${table}" — ${totalUploaded} سجل.`);
                     }
-                    if (count > 0) {
-                        await batch.commit();
-                        totalUploaded += count;
-                    }
-                    console.log(`[Firebase] ✅ اكتمل ترحيل "${table}" — ${totalUploaded} سجل مُرحَّل.`);
-                } else {
-                    console.log(`[Firebase] ℹ️ جدول "${table}" فارغ — تم تخطيه.`);
                 }
-            }
+                localStorage.setItem('edu_firebase_migrated', 'true');
+                console.log('[Firebase] 🎉 اكتمل الترحيل الأولي إلى Firebase!');
 
-            localStorage.setItem('edu_firebase_migrated', 'true');
-            console.log('[Firebase] 🎉 اكتمل الترحيل الأولي إلى Firebase!');
-        } else {
-            // Already migrated, pull latest from Firestore to overwrite local IndexedDB (sync changes from other devices)
-            console.log('[Firebase] 🔄 جارٍ مزامنة البيانات من Firebase إلى IndexedDB المحلي...');
-            
-            // 1. Sync settings & grades list from Firestore
-            try {
-                const settingsDoc = await window.firebaseDB.collection('app_config').doc('settings').get();
-                if (settingsDoc.exists) {
-                    localStorage.setItem('edu_master_settings', JSON.stringify(settingsDoc.data()));
-                    console.log('[Firebase] ✅ تمت مزامنة الإعدادات من Firebase.');
-                } else {
-                    console.warn('[Firebase] ⚠️ لا توجد إعدادات في Firebase — سيُستخدم المحلي.');
-                }
-                const gradesDoc = await window.firebaseDB.collection('app_config').doc('grades_list').get();
-                if (gradesDoc.exists && gradesDoc.data().list) {
-                    localStorage.setItem('edu_grades_list', JSON.stringify(gradesDoc.data().list));
-                    console.log('[Firebase] ✅ تمت مزامنة قائمة المراحل من Firebase.');
-                }
-            } catch (e) {
-                console.error('[Firebase] ❌ خطأ في جلب app_config من Firebase:', e.code, e.message);
-            }
+            } else {
+                // اسحب أحدث البيانات من Firestore إلى IndexedDB المحلي
+                console.log('[Firebase] 🔄 جارٍ مزامنة البيانات من Firebase إلى IndexedDB المحلي...');
 
-            // 2. Pull collections
-            for (const table of tables) {
                 try {
-                    const snap = await window.firebaseDB.collection(table).get();
-                    const items = snap.docs.map(doc => doc.data());
-                    await this.overwriteStore(table, items);
-                    console.log(`[Firebase] ✅ تمت مزامنة "${table}" — ${items.length} سجل.`);
-                } catch (tableErr) {
-                    console.error(`[Firebase] ❌ خطأ في مزامنة جدول "${table}":`, tableErr.code, tableErr.message);
+                    const settingsDoc = await window.firebaseDB.collection('app_config').doc('settings').get();
+                    if (settingsDoc.exists) {
+                        localStorage.setItem('edu_master_settings', JSON.stringify(settingsDoc.data()));
+                        console.log('[Firebase] ✅ تمت مزامنة الإعدادات من Firebase.');
+                    } else {
+                        console.warn('[Firebase] ⚠️ لا توجد إعدادات في Firebase — سيُستخدم المحلي.');
+                    }
+                    const gradesDoc = await window.firebaseDB.collection('app_config').doc('grades_list').get();
+                    if (gradesDoc.exists && gradesDoc.data().list) {
+                        localStorage.setItem('edu_grades_list', JSON.stringify(gradesDoc.data().list));
+                        console.log('[Firebase] ✅ تمت مزامنة قائمة المراحل من Firebase.');
+                    }
+                } catch (e) {
+                    console.error('[Firebase] ❌ خطأ في جلب app_config من Firebase:', e.code, e.message);
                 }
+
+                for (const table of tables) {
+                    try {
+                        const snap = await window.firebaseDB.collection(table).get();
+                        const items = snap.docs.map(doc => doc.data());
+                        await this.overwriteStore(table, items);
+                        console.log(`[Firebase] ✅ تمت مزامنة "${table}" — ${items.length} سجل.`);
+                    } catch (tableErr) {
+                        console.error(`[Firebase] ❌ خطأ في مزامنة جدول "${table}":`, tableErr.code, tableErr.message);
+                    }
+                }
+                localStorage.setItem('edu_firebase_migrated', 'true');
+                console.log('[Firebase] ✅ اكتملت المزامنة من Firebase إلى IndexedDB المحلي.');
             }
-            console.log('[Firebase] ✅ اكتملت المزامنة من Firebase إلى IndexedDB المحلي.');
+
+            if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('latest');
+
+        } catch (syncErr) {
+            console.error('[Firebase] ❌ خطأ في المزامنة مع Firebase:', syncErr);
+            if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('error');
+            throw syncErr;
         }
     },
 
@@ -12660,4 +12680,79 @@ async function diagnoseStaffAuth(testPin = null) {
 }
 
 window.diagnoseStaffAuth = diagnoseStaffAuth;
+
+// ============================================================
+//  Firebase Sync UI Helpers & Triggers
+// ============================================================
+function updateFirebaseSyncStatusUI(state) {
+    const dot = document.getElementById('firebase-sync-dot');
+    const text = document.getElementById('firebase-sync-text');
+    const lastTime = document.getElementById('firebase-sync-last-time');
+    
+    if (!dot || !text) return;
+    
+    const states = {
+        checking: { color: '#f59e0b', msg: 'جاري التحقق من الاتصال...' },
+        syncing: { color: '#3b82f6', msg: 'جاري المزامنة مع السحابة...' },
+        latest: { color: '#10b981', msg: '✅ متصل ومزامن بالكامل' },
+        offline: { color: '#94a3b8', msg: '⚫ غير متصل بالإنترنت' },
+        error: { color: '#ef4444', msg: '❌ فشل الاتصال / خطأ قواعد الأمان' }
+    };
+    
+    const s = states[state] || states.error;
+    dot.style.background = s.color;
+    text.textContent = s.msg;
+    text.style.color = s.color;
+    
+    if (state === 'latest') {
+        const timeStr = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        localStorage.setItem('edu_firebase_last_sync_time', timeStr);
+        if (lastTime) lastTime.textContent = 'آخر مزامنة ناجحة: اليوم الساعة ' + timeStr;
+    } else {
+        const savedTime = localStorage.getItem('edu_firebase_last_sync_time');
+        if (lastTime && savedTime) {
+            lastTime.textContent = 'آخر مزامنة ناجحة: اليوم الساعة ' + savedTime;
+        }
+    }
+}
+
+async function triggerManualFirebaseSync() {
+    const btn = document.getElementById('btn-firebase-sync');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري المزامنة...';
+    }
+    try {
+        if (!window.firebaseDB) {
+            throw new Error("قاعدة بيانات Firebase غير متوفرة أو لم يتم تحميلها بعد.");
+        }
+        showNotification('🔍 جاري بدء المزامنة الثنائية مع Firebase...', 'info');
+        await StorageEngine.syncWithFirebase(true); // force pull
+        showNotification('✅ تمت المزامنة السحابية بنجاح!', 'success');
+        updateFirebaseSyncStatusUI('latest');
+    } catch (err) {
+        console.error(err);
+        showNotification(`❌ فشلت المزامنة: ${err.message || err}`, 'error');
+        updateFirebaseSyncStatusUI('error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-sync-alt"></i> مزامنة البيانات سحابياً الآن ☁️';
+        }
+    }
+}
+
+function resetFirebaseMigrationFlag() {
+    if (confirm("هل أنت متأكد من إعادة تهيئة المزامنة؟ هذا الخيار سيجعل التطبيق يرفع البيانات المحلية الحالية إلى Firebase مجدداً كعملية ترحيل أولية عند التحديث القادم.")) {
+        localStorage.removeItem('edu_firebase_migrated');
+        showNotification('🔄 تم إعادة تعيين مؤشر المزامنة. يرجى تحديث الصفحة للبدء.', 'info');
+        setTimeout(() => window.location.reload(true), 1500);
+    }
+}
+
+// Export functions to global scope
+window.updateFirebaseSyncStatusUI = updateFirebaseSyncStatusUI;
+window.triggerManualFirebaseSync = triggerManualFirebaseSync;
+window.resetFirebaseMigrationFlag = resetFirebaseMigrationFlag;
+
 

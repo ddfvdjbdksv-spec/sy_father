@@ -1982,6 +1982,43 @@
                         مع الحالية.
                     </p>
                 </div>
+
+                <!-- Firebase Cloud Sync Card -->
+                <div class="card" id="firebase-sync-card" style="border-top: 5px solid var(--vibrant-orange); padding: 2.5rem; background: linear-gradient(145deg, #fffaf5, #fff);">
+                    <div style="text-align: center; margin-bottom: 2rem;">
+                        <div style="width: 80px; height: 80px; background: rgba(249, 115, 22, 0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem;">
+                            <i class="fas fa-cloud" style="font-size: 2.5rem; color: var(--vibrant-orange);"></i>
+                        </div>
+                        <h2 style="font-weight: 800; color: var(--vibrant-orange);">المزامنة السحابية (Firebase)</h2>
+                        <p style="color: var(--text-muted); margin-top: 1rem;">مزامنة بيانات الطلاب والدرجات والغياب والمالية تلقائياً بين الأجهزة عبر خادم Firebase السحابي.</p>
+                    </div>
+                    
+                    <div id="firebase-sync-status-container" style="text-align: center; margin-bottom: 1.5rem;">
+                        <div style="display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; background: var(--bg-light); border-radius: 99px; border: 1px solid var(--border);">
+                            <span id="firebase-sync-dot" style="width: 10px; height: 10px; border-radius: 50%; background: #94a3b8; display: inline-block;"></span>
+                            <span id="firebase-sync-text" style="font-weight: 700; font-size: 0.9rem; color: var(--text-muted);">جاري التحقق من الاتصال...</span>
+                        </div>
+                        <div id="firebase-sync-last-time" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 8px;">آخر مزامنة: لم تتم بعد</div>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 0.8rem;">
+                        <button class="btn btn-primary" onclick="triggerManualFirebaseSync()" id="btn-firebase-sync" style="
+                            width: 100%; height: 52px; font-size: 1rem; font-weight: 700;
+                            background: linear-gradient(135deg, #f97316, #ea580c); color: #fff;
+                            border: none; border-radius: 14px; cursor: pointer;
+                            box-shadow: 0 6px 18px rgba(249, 115, 22, 0.28);
+                        ">
+                            <i class="fas fa-sync-alt"></i> مزامنة البيانات سحابياً الآن ☁️
+                        </button>
+                        <button class="btn" onclick="resetFirebaseMigrationFlag()" style="
+                            width: 100%; height: 44px; font-size: 0.88rem; font-weight: 600;
+                            background: rgba(249, 115, 22, 0.08); color: #ea580c;
+                            border: 1px solid rgba(249, 115, 22, 0.25); border-radius: 12px;
+                        ">
+                            <i class="fas fa-trash-alt"></i> إعادة تهيئة المزامنة (الترحيل من البداية)
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div class="stats-grid"
@@ -3551,12 +3588,12 @@
              في انتظار الشبكة، وهو ما كان يجعل الشاشة تبدو وكأنها "محتاجة
              إنترنت" لفتح جزء كلمات المرور. -->
         <!-- ✅ تم استضافة كل المكتبات محلياً — لا يوجد أي اعتماد على الإنترنت لتشغيل الباركود/QR/التصوير -->
-        <!-- Firebase SDK (Compat Version) -->
-        <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"
-            onerror="console.error('[Firebase] ❌ فشل تحميل firebase-app-compat.js من CDN — لن تعمل المزامنة السحابية.'); window._firebaseLoadFailed = true;">
+        <!-- Firebase SDK (Compat Version) Localized for offline-first support -->
+        <script src="vendor/firebase-app-compat.js"
+            onerror="console.error('[Firebase] ❌ فشل تحميل firebase-app-compat.js محلياً. لن تعمل المزامنة السحابية.'); window._firebaseLoadFailed = true;">
             </script>
-        <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"
-            onerror="console.error('[Firebase] ❌ فشل تحميل firebase-firestore-compat.js من CDN — لن تعمل المزامنة السحابية.'); window._firebaseLoadFailed = true;">
+        <script src="vendor/firebase-firestore-compat.js"
+            onerror="console.error('[Firebase] ❌ فشل تحميل firebase-firestore-compat.js محلياً. لن تعمل المزامنة السحابية.'); window._firebaseLoadFailed = true;">
             </script>
         <script>
             // ── تهيئة Firebase مع التحقق من نجاح التحميل ──────────────────
