@@ -303,26 +303,26 @@ const StorageEngine = {
 
                 // Now initialize Firestore Offline Persistence
                 if (window.firebaseDB) {
-                    console.log('[StorageEngine] Firebase detected. Testing Firestore connection...');
+                    console.log('[Firebase] ✅ تم اكتشاف Firebase — جارٍ اختبار الاتصال بـ Firestore...');
                     // Test write to verify Firestore rules allow access
                     try {
                         await window.firebaseDB.collection('app_config').doc('heartbeat').set({ ts: Date.now() });
-                        console.log('[StorageEngine] ✅ Firestore write test PASSED — rules allow access.');
+                        console.log('[Firebase] ✅ اختبار الكتابة في Firestore نجح — قواعد الأمان تسمح بالوصول.');
                     } catch (testErr) {
-                        console.error('[StorageEngine] ❌ Firestore write test FAILED:', testErr.code, testErr.message);
-                        console.warn('[StorageEngine] Data will only be saved locally (IndexedDB). Check Firestore rules at Firebase Console.');
+                        console.error('[Firebase] ❌ اختبار الكتابة في Firestore فشل:', testErr.code, testErr.message);
+                        console.warn('[Firebase] ⚠️ البيانات ستُحفظ محلياً فقط (IndexedDB). تحقق من قواعد Firestore في Firebase Console.');
                     }
 
                     try {
                         await window.firebaseDB.enablePersistence({ synchronizeTabs: true });
-                        console.log('[StorageEngine] Firestore offline persistence enabled.');
+                        console.log('[Firebase] ✅ تم تفعيل التخزين المؤقت Offline لـ Firestore.');
                     } catch (err) {
                         if (err.code === 'failed-precondition') {
-                            console.warn('[StorageEngine] Multiple tabs open — persistence enabled in one tab only.');
+                            console.warn('[Firebase] ⚠️ تبويبات متعددة مفتوحة — التخزين المؤقت يعمل في تبويب واحد فقط.');
                         } else if (err.code === 'unimplemented') {
-                            console.warn('[StorageEngine] Browser does not support offline persistence.');
+                            console.warn('[Firebase] ⚠️ المتصفح لا يدعم Offline Persistence لـ Firestore.');
                         } else {
-                            console.warn('[StorageEngine] Persistence error (non-critical):', err.message);
+                            console.warn('[Firebase] ⚠️ خطأ في تفعيل Persistence (غير حرج):', err.code, err.message);
                         }
                         // Non-critical: continue without persistence
                     }
@@ -331,10 +331,10 @@ const StorageEngine = {
                     try {
                         await StorageEngine.syncWithFirebase();
                     } catch (syncErr) {
-                        console.error('[StorageEngine] Firebase sync error during init:', syncErr);
+                        console.error('[Firebase] ❌ خطأ في المزامنة الأولية مع Firebase:', syncErr);
                     }
                 } else {
-                    console.warn('[StorageEngine] window.firebaseDB is NOT defined — Firebase not loaded. Data saved locally only.');
+                    console.warn('[Firebase] ⚠️ window.firebaseDB غير معرَّف — Firebase لم يُحمَّل أو فشل. البيانات محلية فقط.');
                 }
 
                 resolve();
@@ -350,30 +350,33 @@ const StorageEngine = {
 
         const migratedFlag = localStorage.getItem('edu_firebase_migrated');
         if (migratedFlag !== 'true') {
-            console.log('[StorageEngine] Starting initial migration of local IndexedDB data to Firebase...');
+            console.log('[Firebase] 🚀 بدء الترحيل الأولي من IndexedDB المحلي إلى Firebase...');
             
             // 1. Upload settings & grades list first if they exist
             const settings = localStorage.getItem('edu_master_settings');
             if (settings) {
                 try {
                     await window.firebaseDB.collection('app_config').doc('settings').set(JSON.parse(settings));
-                } catch(e) { console.error('Migration settings error:', e); }
+                    console.log('[Firebase] ✅ تم ترحيل الإعدادات (settings) إلى Firebase.');
+                } catch(e) { console.error('[Firebase] ❌ خطأ في ترحيل الإعدادات:', e.code, e.message); }
             }
             const grades = localStorage.getItem('edu_grades_list');
             if (grades) {
                 try {
                     await window.firebaseDB.collection('app_config').doc('grades_list').set({ list: JSON.parse(grades) });
-                } catch(e) { console.error('Migration grades error:', e); }
+                    console.log('[Firebase] ✅ تم ترحيل قائمة المراحل (grades_list) إلى Firebase.');
+                } catch(e) { console.error('[Firebase] ❌ خطأ في ترحيل قائمة المراحل:', e.code, e.message); }
             }
 
             // 2. Upload each IndexedDB table to Firestore
             for (const table of tables) {
                 const localData = await this.getAllLocal(table);
                 if (localData && localData.length > 0) {
-                    console.log(`[StorageEngine] Migrating ${localData.length} items from table "${table}"...`);
+                    console.log(`[Firebase] 📤 جارٍ ترحيل ${localData.length} سجل من جدول "${table}"...`);
                     // Upload in batches of 500
                     let batch = window.firebaseDB.batch();
                     let count = 0;
+                    let totalUploaded = 0;
                     for (const item of localData) {
                         if (!item.id) continue;
                         const ref = window.firebaseDB.collection(table).doc(String(item.id));
@@ -381,34 +384,44 @@ const StorageEngine = {
                         count++;
                         if (count === 500) {
                             await batch.commit();
+                            totalUploaded += count;
+                            console.log(`[Firebase] ✅ رُفع ${totalUploaded}/${localData.length} من "${table}"`);
                             batch = window.firebaseDB.batch();
                             count = 0;
                         }
                     }
                     if (count > 0) {
                         await batch.commit();
+                        totalUploaded += count;
                     }
+                    console.log(`[Firebase] ✅ اكتمل ترحيل "${table}" — ${totalUploaded} سجل مُرحَّل.`);
+                } else {
+                    console.log(`[Firebase] ℹ️ جدول "${table}" فارغ — تم تخطيه.`);
                 }
             }
 
             localStorage.setItem('edu_firebase_migrated', 'true');
-            console.log('[StorageEngine] Initial Firebase migration complete!');
+            console.log('[Firebase] 🎉 اكتمل الترحيل الأولي إلى Firebase!');
         } else {
             // Already migrated, pull latest from Firestore to overwrite local IndexedDB (sync changes from other devices)
-            console.log('[StorageEngine] Syncing data from Firebase to local IndexedDB...');
+            console.log('[Firebase] 🔄 جارٍ مزامنة البيانات من Firebase إلى IndexedDB المحلي...');
             
             // 1. Sync settings & grades list from Firestore
             try {
                 const settingsDoc = await window.firebaseDB.collection('app_config').doc('settings').get();
                 if (settingsDoc.exists) {
                     localStorage.setItem('edu_master_settings', JSON.stringify(settingsDoc.data()));
+                    console.log('[Firebase] ✅ تمت مزامنة الإعدادات من Firebase.');
+                } else {
+                    console.warn('[Firebase] ⚠️ لا توجد إعدادات في Firebase — سيُستخدم المحلي.');
                 }
                 const gradesDoc = await window.firebaseDB.collection('app_config').doc('grades_list').get();
                 if (gradesDoc.exists && gradesDoc.data().list) {
                     localStorage.setItem('edu_grades_list', JSON.stringify(gradesDoc.data().list));
+                    console.log('[Firebase] ✅ تمت مزامنة قائمة المراحل من Firebase.');
                 }
             } catch (e) {
-                console.error('[StorageEngine] Error pulling app_config from Firebase:', e);
+                console.error('[Firebase] ❌ خطأ في جلب app_config من Firebase:', e.code, e.message);
             }
 
             // 2. Pull collections
@@ -417,11 +430,12 @@ const StorageEngine = {
                     const snap = await window.firebaseDB.collection(table).get();
                     const items = snap.docs.map(doc => doc.data());
                     await this.overwriteStore(table, items);
+                    console.log(`[Firebase] ✅ تمت مزامنة "${table}" — ${items.length} سجل.`);
                 } catch (tableErr) {
-                    console.error(`[StorageEngine] Error syncing table "${table}" from Firebase:`, tableErr);
+                    console.error(`[Firebase] ❌ خطأ في مزامنة جدول "${table}":`, tableErr.code, tableErr.message);
                 }
             }
-            console.log('[StorageEngine] Local IndexedDB updated from Firebase.');
+            console.log('[Firebase] ✅ اكتملت المزامنة من Firebase إلى IndexedDB المحلي.');
         }
     },
 
@@ -571,8 +585,10 @@ const StorageEngine = {
         // 2. Save to Firestore (Push to cloud)
         if (window.firebaseDB) {
             try {
+                console.log(`[Firebase] 📤 جارٍ حفظ ${data.length} سجل في Firestore — جدول: "${storeName}"...`);
                 let batch = window.firebaseDB.batch();
                 let batchCount = 0;
+                let totalSaved = 0;
                 for (const item of data) {
                     if (!item.id) continue;
                     const ref = window.firebaseDB.collection(storeName).doc(String(item.id));
@@ -580,16 +596,23 @@ const StorageEngine = {
                     batchCount++;
                     if (batchCount === 500) {
                         await batch.commit();
+                        totalSaved += batchCount;
+                        console.log(`[Firebase] ✅ رُفع ${totalSaved}/${data.length} من "${storeName}"`);
                         batch = window.firebaseDB.batch();
                         batchCount = 0;
                     }
                 }
                 if (batchCount > 0) {
                     await batch.commit();
+                    totalSaved += batchCount;
                 }
+                console.log(`[Firebase] ✅ تم الحفظ في Firestore — "${storeName}" (${totalSaved} سجل).`);
             } catch (fsErr) {
-                console.error(`[StorageEngine] Firestore save error for store ${storeName}:`, fsErr);
+                console.error(`[Firebase] ❌ فشل الحفظ في Firestore — جدول "${storeName}":`, fsErr.code, fsErr.message);
+                console.warn(`[Firebase] ⚠️ السبب المحتمل: قواعد Firestore تمنع الكتابة، أو انقطع الاتصال. تحقق من Firebase Console.`);
             }
+        } else {
+            console.warn(`[Firebase] ⚠️ تم الحفظ محلياً فقط في "${storeName}" — Firebase غير متاح.`);
         }
     },
 
@@ -607,9 +630,12 @@ const StorageEngine = {
         if (window.firebaseDB) {
             try {
                 await window.firebaseDB.collection(storeName).doc(String(id)).delete();
+                console.log(`[Firebase] ✅ تم الحذف من Firestore — جدول "${storeName}" معرّف: ${id}.`);
             } catch (fsErr) {
-                console.error(`[StorageEngine] Firestore delete error for store ${storeName}:`, fsErr);
+                console.error(`[Firebase] ❌ فشل الحذف من Firestore — جدول "${storeName}":`, fsErr.code, fsErr.message);
             }
+        } else {
+            console.warn(`[Firebase] ⚠️ تم الحذف محلياً فقط في "${storeName}" — Firebase غير متاح.`);
         }
     },
 
@@ -880,7 +906,11 @@ const db = {
 
         localStorage.setItem('edu_master_settings', JSON.stringify(this._settings));
         if (window.firebaseDB) {
-            window.firebaseDB.collection('app_config').doc('settings').set(this._settings).catch(e => console.error("Firebase settings sync error:", e));
+            window.firebaseDB.collection('app_config').doc('settings').set(this._settings)
+                .then(() => console.log('[Firebase] ✅ تمت مزامنة الإعدادات إلى Firestore.'))
+                .catch(e => console.error('[Firebase] ❌ فشل مزامنة الإعدادات إلى Firestore:', e.code, e.message));
+        } else {
+            console.warn('[Firebase] ⚠️ الإعدادات مُحفظة محلياً فقط — Firebase غير متاح.');
         }
         if (currentGrade) localStorage.setItem('edu_active_grade', currentGrade);
         if (currentGroupId) localStorage.setItem('edu_active_group', currentGroupId);
