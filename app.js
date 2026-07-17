@@ -263,7 +263,7 @@ const StorageEngine = {
             }, 8000);
 
             // Initialize IndexedDB local database
-            const request = indexedDB.open("EduMasterLargeDB", 5);
+            const request = indexedDB.open("EduMasterLargeDB", 7);
 
             request.onerror = (e) => {
                 if (settled) return;
@@ -9055,22 +9055,49 @@ async function clearAllStudents() {
 //  إرسال بيانات Firebase وربطها فعلياً (كما هو متفق).
 // ============================================================
 function getStudentTrackingLink(qrCode) {
-    let base = (db.settings && db.settings.trackingBaseUrl) || window.location.origin;
-    if (!base || base === 'null' || base.startsWith('file://') || base.includes('localhost') || base.includes('127.0.0.1')) {
-        base = 'https://syfather.web.app';
+    // 1. إذا تم ضبط رابط يدوي من الإعدادات، نستخدمه
+    if (db.settings && db.settings.trackingBaseUrl && db.settings.trackingBaseUrl !== 'null') {
+        return `${db.settings.trackingBaseUrl.replace(/\/$/, '')}/student.html?id=${qrCode}`;
     }
-    return `${base.replace(/\/$/, '')}/student.html?id=${qrCode}`;
+
+    // 2. محاولة حساب الرابط تلقائياً من المسار الحالي
+    // (للتطبيقات المحلية أو الاستضافات الأخرى)
+    if (!window.location.protocol.startsWith('file') &&
+        !window.location.hostname.includes('localhost') &&
+        !window.location.hostname.includes('127.0.0.1')) {
+        const dir = window.location.pathname.replace(/[^/]*$/, ''); // المسار الحالي بدون اسم الملف
+        const base = window.location.origin + dir;
+        return `${base.replace(/\/$/, '')}/student.html?id=${qrCode}`;
+    }
+
+    // 3. Fallback نهائي: الرابط الصحيح على GitHub Pages
+    // https://ddfvdjbdksv-spec.github.io/sy_father/
+    const githubBase = 'https://ddfvdjbdksv-spec.github.io/sy_father';
+    return `${githubBase}/student.html?id=${qrCode}`;
 }
 
 async function saveTrackingBaseUrl() {
     const input = document.getElementById('setting-tracking-url');
     if (!input) return;
-    const val = input.value.trim();
+    let val = input.value.trim();
     if (!val) {
-        showNotification('يرجى إدخال رابط صحيح لصفحة المتابعة', 'error');
+        // فارغ = رجوع للاكتشاف التلقائي، وهذا خيار صالح وليس خطأ
+        if (db.settings) db.settings.trackingBaseUrl = '';
+        try {
+            await db.save('__settings__');
+            showNotification('تم إعادة ضبط الرابط للاكتشاف التلقائي');
+        } catch (err) {
+            showNotification('حدث خطأ أثناء الحفظ', 'error');
+        }
         return;
     }
-    
+    // تنظيف قيم شائعة الخطأ: إزالة student.html أو ؟id= لو كُتبت بالغلط، وإزالة / الزيادة
+    val = val.replace(/\/?student\.html.*$/i, '').replace(/\/$/, '');
+    if (!/^https?:\/\//i.test(val)) {
+        showNotification('الرابط لازم يبدأ بـ https:// أو http://', 'error');
+        return;
+    }
+
     // Save to settings
     if (!db.settings) {
         showNotification('تعذر تحديد المرحلة الحالية لحفظ الإعدادات', 'error');
@@ -10858,6 +10885,22 @@ function ensureSettingsSection() {
             </div>
 
             <div class="settings-panel">
+                <h3><i class="fas fa-link"></i> رابط متابعة الطالب</h3>
+                <div class="settings-row">
+                    <label for="setting-tracking-url">رابط الاستضافة الفعلي (بدون اسم الملف)</label>
+                    <input id="setting-tracking-url" class="form-input" type="text" placeholder="مثال: https://username.github.io/repo-name">
+                </div>
+                <button class="btn btn-primary" onclick="saveTrackingBaseUrl()">
+                    <i class="fas fa-save"></i> حفظ رابط المتابعة
+                </button>
+                <p class="settings-note">
+                    اتركه فارغاً ليتم اكتشافه تلقائياً من مكان فتح الصفحة الحالي. اضبطه يدوياً فقط إذا كان عندك دومين مخصص
+                    أو لو الرابط التلقائي بيطلع 404 عند إرساله عبر واتساب.
+                    مثال صحيح لـ GitHub Pages: <code>https://username.github.io/repo-name</code> (بدون / في الآخر وبدون student.html).
+                </p>
+            </div>
+
+            <div class="settings-panel">
                 <h3><i class="fas fa-clock"></i> تصفير العهدة اليومية التلقائي</h3>
                 <div class="settings-row">
                     <label for="settings-archive-hour">ساعة التصفير والأرشفة التلقائية</label>
@@ -10911,6 +10954,9 @@ function renderProgramSettings() {
     if (commission) commission.value = db.settings.centerCommissionPercent || 0;
     if (printWidth) printWidth.value = localStorage.getItem('alamin_print_width') || '80mm';
     if (zoom) zoom.innerText = `${Math.round(appZoom * 100)}%`;
+
+    const trackingUrlInput = document.getElementById('setting-tracking-url');
+    if (trackingUrlInput) trackingUrlInput.value = (db.settings && db.settings.trackingBaseUrl) || '';
 
     const activeTheme = normalizeAppTheme(localStorage.getItem(APP_THEME_KEY) || 'morning');
     document.getElementById('settings-morning-btn')?.classList.toggle('active', activeTheme === 'morning');
