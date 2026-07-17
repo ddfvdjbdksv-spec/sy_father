@@ -304,20 +304,7 @@ const StorageEngine = {
                 // Now initialize Firestore Offline Persistence
                 if (window.firebaseDB) {
                     if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('checking');
-                    console.log('[Firebase] ✅ تم اكتشاف Firebase — جارٍ تفعيل التخزين المؤقت Offline لـ Firestore...');
-                    
-                    try {
-                        await window.firebaseDB.enablePersistence({ synchronizeTabs: true });
-                        console.log('[Firebase] ✅ تم تفعيل التخزين المؤقت Offline لـ Firestore.');
-                    } catch (err) {
-                        if (err.code === 'failed-precondition') {
-                            console.warn('[Firebase] ⚠️ تبويبات متعددة مفتوحة — التخزين المؤقت يعمل في تبويب واحد فقط.');
-                        } else if (err.code === 'unimplemented') {
-                            console.warn('[Firebase] ⚠️ المتصفح لا يدعم Offline Persistence لـ Firestore.');
-                        } else {
-                            console.warn('[Firebase] ⚠️ خطأ في تفعيل Persistence (غير حرج):', err.code, err.message);
-                        }
-                    }
+                    console.log('[Firebase] ✅ تم اكتشاف Firebase — جارٍ الاتصال بـ Firestore...');
 
                     // Test write to verify Firestore rules in background without blocking startup flow
                     window.firebaseDB.collection('app_config').doc('heartbeat').set({ ts: Date.now() })
@@ -369,8 +356,21 @@ const StorageEngine = {
         const migratedFlag = localStorage.getItem('edu_firebase_migrated');
 
         try {
-            // إذا جهاز جديد بدون بيانات محلية، أو طلب سحب إجباري → اسحب من السحابة
-            const shouldPull = forcePull || migratedFlag === 'true' || !hasLocalData;
+            // تحقق هل Firebase فيه بيانات فعلاً
+            let firebaseHasData = false;
+            try {
+                const checkSnap = await window.firebaseDB.collection('students').limit(1).get();
+                const checkGroups = await window.firebaseDB.collection('groups').limit(1).get();
+                firebaseHasData = !checkSnap.empty || !checkGroups.empty;
+            } catch(e) { firebaseHasData = false; }
+
+            // إذا Firebase فاضي وعندنا بيانات محلية → ارفع دائماً بغض النظر عن الـ flag
+            if (hasLocalData && !firebaseHasData) {
+                localStorage.removeItem('edu_firebase_migrated');
+            }
+
+            // إذا جهاز جديد بدون بيانات محلية، أو طلب سحب إجباري، أو Firebase فيه بيانات → اسحب
+            const shouldPull = forcePull || (migratedFlag === 'true' && firebaseHasData) || !hasLocalData;
 
             if (!shouldPull) {
                 // جهاز لديه بيانات محلية ولم يُرحَّل بعد → ارفع إلى السحابة
@@ -2539,7 +2539,7 @@ async function renderStudents() {
     }
 }
 
-function handleAddGroup() {
+async function handleAddGroup() {
     const name = document.getElementById('group-name').value;
     const time = document.getElementById('group-time').value;
     if (!name || !time) return showNotification('يرجى ملء كافة البيانات', 'error');
@@ -2547,7 +2547,7 @@ function handleAddGroup() {
     // Create group
     const newGroup = { id: Date.now(), name, time, grade: currentGrade };
     db.groups.push(newGroup);
-    db.save('groups'); // ⚡ إصلاح أداء: حفظ جدول المجموعات فقط
+    await db.save('groups'); // ⚡ حفظ جدول المجموعات + Firebase
 
     // UI Updates
     renderGroups();
