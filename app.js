@@ -9055,25 +9055,43 @@ async function clearAllStudents() {
 //  إرسال بيانات Firebase وربطها فعلياً (كما هو متفق).
 // ============================================================
 function getStudentTrackingLink(qrCode) {
-    // 1. إذا تم ضبط رابط يدوي من الإعدادات، نستخدمه
+    // 1. لو تم ضبط رابط يدوي من الإعدادات → استخدمه
     if (db.settings && db.settings.trackingBaseUrl && db.settings.trackingBaseUrl !== 'null') {
         return `${db.settings.trackingBaseUrl.replace(/\/$/, '')}/student.html?id=${qrCode}`;
     }
 
-    // 2. محاولة حساب الرابط تلقائياً من المسار الحالي
-    // (للتطبيقات المحلية أو الاستضافات الأخرى)
+    // 2. على GitHub Pages: تحديد تلقائي ذكي
+    // بما في ذلك اسم الريبو الفرعي (sy_father)
+    const currentHost = window.location.hostname;
+    const currentPathname = window.location.pathname;
+    
+    if (currentHost.includes('github.io')) {
+        // استخراج اسم الريبو من المسار
+        // مثال: /sy_father/index.html → /sy_father
+        const pathParts = currentPathname.split('/').filter(p => p);
+        let repoName = '';
+        
+        // إذا كان المسار يحتوي على أكثر من جزء، الأول هو اسم الريبو
+        if (pathParts.length > 0) {
+            repoName = pathParts[0];
+        }
+        
+        const githubBase = `https://${currentHost}/${repoName}`;
+        return `${githubBase}/student.html?id=${qrCode}`;
+    }
+
+    // 3. للتطبيقات المحلية أو الاستضافات الأخرى
     if (!window.location.protocol.startsWith('file') &&
         !window.location.hostname.includes('localhost') &&
         !window.location.hostname.includes('127.0.0.1')) {
-        const dir = window.location.pathname.replace(/[^/]*$/, ''); // المسار الحالي بدون اسم الملف
+        const dir = window.location.pathname.replace(/[^/]*$/, '');
         const base = window.location.origin + dir;
         return `${base.replace(/\/$/, '')}/student.html?id=${qrCode}`;
     }
 
-    // 3. Fallback نهائي: الرابط الصحيح على GitHub Pages
+    // 4. Fallback نهائي آخر الحيل: الرابط الثابت الصحيح
     // https://ddfvdjbdksv-spec.github.io/sy_father/
-    const githubBase = 'https://ddfvdjbdksv-spec.github.io/sy_father';
-    return `${githubBase}/student.html?id=${qrCode}`;
+    return 'https://ddfvdjbdksv-spec.github.io/sy_father/student.html?id=' + qrCode;
 }
 
 async function saveTrackingBaseUrl() {
