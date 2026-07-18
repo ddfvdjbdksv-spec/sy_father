@@ -3628,16 +3628,19 @@
             })();
         </script>
         <script src="vendor/html5-qrcode.min.js" onerror="console.warn('html5-qrcode not available offline')"></script>
-        <script src="vendor/qrcode.min.js" onerror="console.warn('qrcodejs not available offline')"></script>
-        <script src="vendor/JsBarcode.all.min.js" onerror="console.warn('JsBarcode not available offline')"></script>
-        <script src="vendor/html2canvas.min.js" onerror="console.warn('html2canvas not available offline')"></script>
+        <!-- QRCode: vendor أولاً، لو فشل → CDN -->
+        <script src="vendor/qrcode.min.js" onerror="var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';document.head.appendChild(s);"></script>
+        <!-- JsBarcode: vendor أولاً، لو فشل → CDN -->
+        <script src="vendor/JsBarcode.all.min.js" onerror="var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js';document.head.appendChild(s);"></script>
+        <!-- html2canvas: vendor أولاً، لو فشل → CDN -->
+        <script src="vendor/html2canvas.min.js" onerror="var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';document.head.appendChild(s);"></script>
         <!-- Data file - must be loaded BEFORE app.js -->
         <script src="data.js?v=4" onerror="console.warn('data.js not found - fresh install mode');"></script>
         <script src="code-generator.js?v=2"></script>
         <!-- ✅ كان هذا الملف غير مُحمَّل إطلاقاً رغم استخدام دواله (normalizeGrade, gradeLabel...) في app.js -->
         <script src="grade-mapping.js?v=2"></script>
         <script src="archive_functions.js?v=5"></script>
-        <script src="app.js?v=8"></script>
+        <script src="app.js?v=9"></script>
         <script src="platform-subscriptions.js?v=4"></script>
         <script src="transfer-student.js?v=2"></script>
         <script>
