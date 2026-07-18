@@ -253,6 +253,9 @@ function sortStudentsArabic(students) {
  */
 const StorageEngine = {
     db: null,
+    realtimeUnsubscribers: [],
+    realtimeStarted: false,
+    realtimeReloadTimer: null,
     async init() {
         return new Promise(async (resolve, reject) => {
             let settled = false;
@@ -426,6 +429,7 @@ const StorageEngine = {
             console.log('[Firebase] ✅ اكتملت المزامنة الثنائية بنجاح');
 
             if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('latest');
+            await this.startRealtimeSync();
 
         } catch (syncErr) {
             console.error('[Firebase] ❌ خطأ في المزامنة مع Firebase:', syncErr);
@@ -450,6 +454,84 @@ const StorageEngine = {
             transaction.onerror   = () => resolve(false);
             transaction.onabort   = () => resolve(false);
         });
+    },
+
+    async startRealtimeSync() {
+        if (!window.firebaseDB || this.realtimeStarted) return;
+        this.realtimeStarted = true;
+
+        const tables = ['students', 'attendance', 'exams', 'scores', 'expenses', 'handouts', 'studentHandouts', 'materials', 'quizzes', 'rewards', 'payments', 'waQueue', 'groups', 'cycles', 'absenceSessions', 'dailyTreasuryArchives', 'staff', 'shifts', 'courseCodes', 'platformCourses', 'platformSubscriptions'];
+        const touchTable = async (table) => {
+            if (typeof db === 'undefined' || !Array.isArray(db[table])) return;
+            db[table] = await this.getAllLocal(table);
+            this.scheduleRealtimeUiRefresh(table);
+        };
+
+        const watchTable = (table) => {
+            try {
+                const unsubscribe = window.firebaseDB.collection(table).onSnapshot(async (snapshot) => {
+                    if (!this.db || !this.db.objectStoreNames.contains(table)) return;
+                    const tx = this.db.transaction([table], 'readwrite');
+                    const store = tx.objectStore(table);
+
+                    snapshot.docChanges().forEach((change) => {
+                        const data = change.doc.data() || {};
+                        const rawId = data.id !== undefined && data.id !== null ? data.id : change.doc.id;
+                        if (change.type === 'removed') {
+                            try { store.delete(rawId); } catch (_) {}
+                            if (String(rawId) !== rawId) { try { store.delete(String(rawId)); } catch (_) {} }
+                            const numId = Number(rawId);
+                            if (!Number.isNaN(numId)) { try { store.delete(numId); } catch (_) {} }
+                        } else if (data.id !== undefined && data.id !== null) {
+                            store.put(data);
+                        }
+                    });
+
+                    tx.oncomplete = () => touchTable(table);
+                    tx.onerror = () => console.warn('[Firebase] realtime local update failed for', table, tx.error);
+                    tx.onabort = () => console.warn('[Firebase] realtime local update aborted for', table, tx.error);
+                }, (err) => {
+                    console.error('[Firebase] realtime listener failed for', table, err.code, err.message);
+                    if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('error');
+                });
+                this.realtimeUnsubscribers.push(unsubscribe);
+            } catch (err) {
+                console.error('[Firebase] could not start realtime listener for', table, err);
+            }
+        };
+
+        tables.forEach(watchTable);
+
+        try {
+            const unsubscribeConfig = window.firebaseDB.collection('app_config').onSnapshot((snapshot) => {
+                snapshot.docs.forEach((doc) => {
+                    if (doc.id === 'settings') localStorage.setItem('edu_master_settings', JSON.stringify(doc.data() || {}));
+                    if (doc.id === 'grades_list' && doc.data()?.list) localStorage.setItem('edu_grades_list', JSON.stringify(doc.data().list));
+                });
+                if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('latest');
+            });
+            this.realtimeUnsubscribers.push(unsubscribeConfig);
+        } catch (err) {
+            console.error('[Firebase] app_config realtime listener failed', err);
+        }
+    },
+
+    scheduleRealtimeUiRefresh(table) {
+        clearTimeout(this.realtimeReloadTimer);
+        this.realtimeReloadTimer = setTimeout(() => {
+            if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('latest');
+            if (['students', 'groups'].includes(table) && typeof renderStudents === 'function') renderStudents();
+            if (table === 'groups' && typeof refreshGroupContexts === 'function') refreshGroupContexts();
+            if (['attendance', 'payments', 'expenses'].includes(table) && typeof renderFinances === 'function') {
+                try { renderFinances(); } catch (_) {}
+            }
+            if (['attendance', 'absenceSessions'].includes(table) && typeof renderSessionTable === 'function') {
+                try { renderSessionTable(); } catch (_) {}
+            }
+            if (['exams', 'scores'].includes(table) && typeof renderExams === 'function') {
+                try { renderExams(); } catch (_) {}
+            }
+        }, 250);
     },
 
     async overwriteStore(storeName, items) {
@@ -6768,54 +6850,79 @@ function toggleModal(id, show) {
     if (el) el.style.display = show ? 'flex' : 'none';
 }
 
-function generatePrintCard(id) {
+function waitForGlobal(name, timeoutMs = 5000) {
+    return new Promise((resolve, reject) => {
+        const started = Date.now();
+        const tick = () => {
+            if (window[name]) return resolve(window[name]);
+            if (Date.now() - started >= timeoutMs) return reject(new Error(`${name} library is not loaded`));
+            setTimeout(tick, 50);
+        };
+        tick();
+    });
+}
+
+async function generatePrintCard(id) {
     const s = db.students.find(x => x.id === id);
     if (!s) return;
 
-    // Store active student ID for thermal printing
-    document.getElementById('print-modal').dataset.studentId = id;
-
-    // Fetch the actual grade name instead of ID
-    const gradeObj = gradesList.find(g => String(g.id) === String(s.grade));
-    const gradeName = gradeObj ? gradeObj.name : 'طالب';
-
-    document.getElementById('print-name').innerText = s.name;
-    document.getElementById('print-grade').innerText = gradeName;
-    document.getElementById('print-code-text').innerText = s.qrCode;
-
-    // Generate QR Code for parent tracking
-    const qrContainer = document.getElementById('print-qrcode');
-    if (qrContainer) {
-        qrContainer.innerHTML = '';
-        try {
-            new QRCode(qrContainer, {
-                text: getStudentTrackingLink(s.qrCode),
-                width: 130,
-                height: 130,
-                colorDark: "#000000",
-                colorLight: "#ffffff",
-                correctLevel: QRCode.CorrectLevel.M
-            });
-        } catch(e) {
-            console.error('Error generating QR code in card modal:', e);
-            qrContainer.innerText = 'خطأ في إنشاء رمز QR';
-        }
+    const code = String(s.qrCode || '').trim();
+    if (!code) {
+        showNotification('No student code is saved for this student', 'error');
+        return;
     }
 
-    setTimeout(() => {
-        JsBarcode("#barcode-canvas", s.qrCode, {
-            format: "EAN13",
+    document.getElementById('print-modal').dataset.studentId = id;
+
+    const gradeObj = gradesList.find(g => String(g.id) === String(s.grade));
+    const gradeName = gradeObj ? gradeObj.name : 'Student';
+
+    document.getElementById('print-name').innerText = s.name || '---';
+    document.getElementById('print-grade').innerText = gradeName;
+    document.getElementById('print-code-text').innerText = code;
+
+    toggleModal('print-modal', true);
+
+    const qrContainer = document.getElementById('print-qrcode');
+    const barcodeCanvas = document.getElementById('barcode-canvas');
+    if (qrContainer) qrContainer.innerHTML = '<small style="color:#64748b">Generating QR...</small>';
+    if (barcodeCanvas) barcodeCanvas.innerHTML = '';
+
+    try {
+        await waitForGlobal('QRCode');
+        if (qrContainer) {
+            qrContainer.innerHTML = '';
+            new QRCode(qrContainer, {
+                text: getStudentTrackingLink(code),
+                width: 130,
+                height: 130,
+                colorDark: '#000000',
+                colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.M
+            });
+        }
+    } catch(e) {
+        console.error('Error generating QR code in card modal:', e);
+        if (qrContainer) qrContainer.innerText = 'QR Code error: QR library is not loaded';
+    }
+
+    try {
+        await waitForGlobal('JsBarcode');
+        JsBarcode('#barcode-canvas', code, {
+            format: 'CODE128',
             width: 2.5,
             height: 80,
             displayValue: true,
             fontSize: 22,
             flat: true,
             margin: 10,
-            background: "#ffffff",
-            lineColor: "#000000"
+            background: '#ffffff',
+            lineColor: '#000000'
         });
-    }, 200);
-    toggleModal('print-modal', true);
+    } catch(e) {
+        console.error('Error generating barcode in card modal:', e);
+        showNotification('Barcode generation failed: ' + (e.message || e), 'error');
+    }
 }
 
 function printCurrentCardThermal() {
