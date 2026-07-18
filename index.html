@@ -3621,6 +3621,23 @@
                         ? existingApp.firestore()
                         : firebase.firestore();
                     console.log('[Firebase] ✅ تمت تهيئة Firebase بنجاح — المشروع:', firebaseConfig.projectId);
+
+                    // ✅ إصلاح مشكلة 4: تفعيل Offline Persistence
+                    // يخلّي Firestore يحتفظ بكاش في IndexedDB حتى بعد إغلاق التبويب
+                    // synchronizeTabs: true → يشارك الكاش بين التبويبات المفتوحة
+                    window.firebaseDB.enableIndexedDbPersistence({ synchronizeTabs: true })
+                        .then(() => {
+                            console.log('[Firebase] ✅ Offline Persistence مُفعَّل — البيانات محمية بين الجلسات');
+                        })
+                        .catch((persistErr) => {
+                            if (persistErr.code === 'failed-precondition') {
+                                console.warn('[Firebase] ⚠️ Persistence: تبويبات متعددة مفتوحة — يعمل في تبويب واحد فقط');
+                            } else if (persistErr.code === 'unimplemented') {
+                                console.warn('[Firebase] ⚠️ Persistence: المتصفح لا يدعم IndexedDB Persistence');
+                            } else {
+                                console.warn('[Firebase] ⚠️ Persistence:', persistErr.code, persistErr.message);
+                            }
+                        });
                 } catch (err) {
                     console.error('[Firebase] ❌ خطأ أثناء تهيئة Firebase:', err.code || err.message || err);
                     window.firebaseDB = null;

@@ -266,7 +266,7 @@ const StorageEngine = {
             }, 8000);
 
             // Initialize IndexedDB local database
-            const request = indexedDB.open("EduMasterLargeDB", 7);
+            const request = indexedDB.open("EduMasterLargeDB", 8);
 
             request.onerror = (e) => {
                 if (settled) return;
@@ -295,6 +295,12 @@ const StorageEngine = {
                 tables.forEach(t => {
                     if (!db.objectStoreNames.contains(t)) db.createObjectStore(t, { keyPath: "id" });
                 });
+                // ✅ إصلاح مشكلة 2: طابور العمليات المعلقة أثناء انقطاع الإنترنت
+                if (!db.objectStoreNames.contains('pendingQueue')) {
+                    const pq = db.createObjectStore('pendingQueue', { keyPath: 'id' });
+                    pq.createIndex('storeName', 'storeName', { unique: false });
+                    pq.createIndex('ts', 'ts', { unique: false });
+                }
             };
 
             request.onsuccess = async (e) => {
@@ -342,6 +348,18 @@ const StorageEngine = {
     async syncWithFirebase(forcePull = false) {
         if (!window.firebaseDB) {
             if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('offline');
+            return;
+        }
+
+        // ✅ إصلاح مشكلة 1: لو البيانات سبق ترحيلها وmفيش forcePull، شغّل Realtime فقط
+        const alreadyMigrated = localStorage.getItem('edu_firebase_migrated') === 'true';
+        if (alreadyMigrated && !forcePull) {
+            console.log('[Firebase] ✅ البيانات سبق ترحيلها — تشغيل المزامنة الآنية فقط (بدون رفع/سحب كامل)');
+            if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('syncing');
+            await this.startRealtimeSync();
+            if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('latest');
+            // إفراغ أي عمليات معلقة من الجلسات السابقة
+            setTimeout(() => { if (typeof PendingQueue !== 'undefined') PendingQueue.flush(); }, 3000);
             return;
         }
 
@@ -438,17 +456,44 @@ const StorageEngine = {
         }
     },
 
-    // Helper to overwrite local IndexedDB store
-    // دمج آمن: يضيف السجلات الجديدة من Firebase بدون مسح المحلي
+    // دمج آمن: يدمج السجلات من Firebase مع المحلي بمقارنة updatedAt
+    // ✅ إصلاح مشكلة 3: السجل الأحدث (updatedAt أكبر) يكسب دائماً
     async mergeIntoStore(storeName, remoteItems) {
+        if (!this.db || !this.db.objectStoreNames.contains(storeName)) return false;
+        const validItems = remoteItems.filter(item => item && item.id != null);
+        if (!validItems.length) return true;
+
+        // نقرأ السجلات المحلية كلها مرة واحدة بـ getAll للأداء
+        const localMap = await new Promise((resolve) => {
+            const tx = this.db.transaction([storeName], 'readonly');
+            const req = tx.objectStore(storeName).getAll();
+            req.onsuccess = () => {
+                const map = {};
+                (req.result || []).forEach(item => { if (item.id != null) map[String(item.id)] = item; });
+                resolve(map);
+            };
+            req.onerror = () => resolve({});
+        });
+
+        // نحدد ما يجب كتابته فعلاً (السحابة أحدث أو السجل جديد)
+        const toWrite = validItems.filter(remoteItem => {
+            const key = String(remoteItem.id);
+            const localItem = localMap[key];
+            if (!localItem) return true; // سجل جديد من السحابة — أضفه
+            const localTs  = Number(localItem.updatedAt)  || 0;
+            const remoteTs = Number(remoteItem.updatedAt) || 0;
+            return remoteTs > localTs; // السحابة أحدث — خذ منها
+        });
+
+        if (!toWrite.length) return true;
+
         return new Promise((resolve) => {
-            if (!this.db || !this.db.objectStoreNames.contains(storeName)) return resolve(false);
             const transaction = this.db.transaction([storeName], 'readwrite');
             const store = transaction.objectStore(storeName);
-            // put بيضيف لو مش موجود، وبيحدّث لو موجود بنفس الـ id
-            // المحلي والريموت بيتدمجوا بدون حذف أي منهم
-            remoteItems.forEach(item => {
-                try { if (item.id) store.put(item); } catch(e) {}
+            toWrite.forEach(item => {
+                try { store.put(item); } catch(e) {
+                    console.warn(`[mergeIntoStore] خطأ في كتابة ${storeName}/${item.id}:`, e);
+                }
             });
             transaction.oncomplete = () => resolve(true);
             transaction.onerror   = () => resolve(false);
@@ -637,6 +682,10 @@ const StorageEngine = {
         if (!Array.isArray(data)) data = [data];
         if (data.length === 0) return;
 
+        // ✅ إصلاح مشكلة 3: أضف updatedAt لكل سجل جديد (لا تكتب فوق لو موجود)
+        const now = Date.now();
+        data = data.map(item => (item && !item.updatedAt ? { ...item, updatedAt: now } : item));
+
         // 1. Save to local IndexedDB (keeps UI snappy and offline compatible)
         const CHUNK_SIZE = 5000;
         for (let i = 0; i < data.length; i += CHUNK_SIZE) {
@@ -703,10 +752,19 @@ const StorageEngine = {
                 console.log(`[Firebase] ✅ تم الحفظ في Firestore — "${storeName}" (${totalSaved} سجل).`);
             } catch (fsErr) {
                 console.error(`[Firebase] ❌ فشل الحفظ في Firestore — جدول "${storeName}":`, fsErr.code, fsErr.message);
-                console.warn(`[Firebase] ⚠️ السبب المحتمل: قواعد Firestore تمنع الكتابة، أو انقطع الاتصال. تحقق من Firebase Console.`);
+                // ✅ إصلاح مشكلة 2: احفظ في طابور الانتظار لإعادة المحاولة عند الاتصال
+                if (typeof PendingQueue !== 'undefined') {
+                    await PendingQueue.push(storeName, data);
+                } else {
+                    console.warn(`[Firebase] ⚠️ السبب المحتمل: قواعد Firestore تمنع الكتابة، أو انقطع الاتصال.`);
+                }
             }
         } else {
             console.warn(`[Firebase] ⚠️ تم الحفظ محلياً فقط في "${storeName}" — Firebase غير متاح.`);
+            // ✅ إصلاح مشكلة 2: لو Firebase مش متاح، احفظ في الطابور كمان
+            if (typeof PendingQueue !== 'undefined' && StorageEngine.db) {
+                await PendingQueue.push(storeName, data);
+            }
         }
     },
 
@@ -12779,6 +12837,101 @@ async function diagnoseStaffAuth(testPin = null) {
 }
 
 window.diagnoseStaffAuth = diagnoseStaffAuth;
+
+// ============================================================
+//  PendingQueue — طابور العمليات المعلقة أثناء انقطاع الإنترنت
+//  ✅ إصلاح مشكلة 2: أي عملية حفظ تفشل في Firestore تُحفظ هنا
+//     وتُعاد تلقائياً عند عودة الإنترنت.
+// ============================================================
+const PendingQueue = {
+
+    async push(storeName, items) {
+        if (!StorageEngine.db) return;
+        if (!Array.isArray(items)) items = [items];
+        const now = Date.now();
+        const ops = items
+            .filter(item => item && item.id)
+            .map(item => ({
+                id: `${storeName}_${item.id}_${now}_${Math.random().toString(36).slice(2, 7)}`,
+                storeName,
+                item,
+                ts: now,
+                retries: 0
+            }));
+        if (!ops.length) return;
+        return new Promise((resolve) => {
+            const tx = StorageEngine.db.transaction(['pendingQueue'], 'readwrite');
+            const store = tx.objectStore('pendingQueue');
+            ops.forEach(op => store.put(op));
+            tx.oncomplete = () => {
+                console.log(`[PendingQueue] 📋 حُفظ ${ops.length} عملية معلقة في \"${storeName}\" للرفع لاحقاً`);
+                resolve(true);
+            };
+            tx.onerror = () => resolve(false);
+            tx.onabort = () => resolve(false);
+        });
+    },
+
+    async getAll() {
+        if (!StorageEngine.db || !StorageEngine.db.objectStoreNames.contains('pendingQueue')) return [];
+        return new Promise((resolve) => {
+            const tx = StorageEngine.db.transaction(['pendingQueue'], 'readonly');
+            const req = tx.objectStore('pendingQueue').getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => resolve([]);
+        });
+    },
+
+    async remove(opId) {
+        if (!StorageEngine.db) return;
+        return new Promise((resolve) => {
+            const tx = StorageEngine.db.transaction(['pendingQueue'], 'readwrite');
+            tx.objectStore('pendingQueue').delete(opId);
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => resolve(false);
+        });
+    },
+
+    async flush() {
+        if (!window.firebaseDB) return;
+        if (!navigator.onLine) return;
+        const pending = await this.getAll();
+        if (!pending.length) return;
+        console.log(`[PendingQueue] 🔄 جارٍ إعادة رفع ${pending.length} عملية معلقة إلى Firebase...`);
+        let successCount = 0;
+        let failCount = 0;
+        for (const op of pending) {
+            try {
+                const ref = window.firebaseDB.collection(op.storeName).doc(String(op.item.id));
+                await ref.set(op.item);
+                await this.remove(op.id);
+                successCount++;
+            } catch (e) {
+                failCount++;
+                console.warn(`[PendingQueue] ⚠️ فشل رفع العملية المعلقة (${op.storeName}/${op.item.id}):`, e.message);
+                if (!navigator.onLine) break;
+            }
+        }
+        if (successCount > 0) {
+            console.log(`[PendingQueue] ✅ تم رفع ${successCount} عملية معلقة بنجاح`);
+            if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('latest');
+            if (typeof showNotification === 'function' && successCount > 0) {
+                showNotification(`✅ تم رفع ${successCount} عملية معلقة إلى السحابة`, 'success');
+            }
+        }
+        if (failCount > 0) {
+            console.warn(`[PendingQueue] ⚠️ فشل رفع ${failCount} عملية — ستُعاد المحاولة عند الاتصال`);
+        }
+    }
+};
+
+// ✅ استمع لعودة الإنترنت وافرّغ الطابور تلقائياً
+window.addEventListener('online', () => {
+    console.log('[Network] 🌐 عاد الاتصال بالإنترنت — جارٍ رفع العمليات المعلقة...');
+    setTimeout(() => PendingQueue.flush(), 2500);
+});
+
+window.PendingQueue = PendingQueue;
 
 // ============================================================
 //  Firebase Sync UI Helpers & Triggers
