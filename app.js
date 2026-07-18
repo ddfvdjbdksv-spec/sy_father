@@ -346,109 +346,84 @@ const StorageEngine = {
 
         const tables = ['students', 'attendance', 'exams', 'scores', 'expenses', 'handouts', 'studentHandouts', 'materials', 'quizzes', 'rewards', 'payments', 'waQueue', 'groups', 'cycles', 'absenceSessions', 'dailyTreasuryArchives', 'staff', 'shifts', 'courseCodes', 'platformCourses', 'platformSubscriptions'];
 
-        // فحص وجود بيانات محلية في الجداول الرئيسية
-        let hasLocalData = false;
-        for (const table of ['students', 'groups', 'attendance']) {
-            const data = await this.getAllLocal(table);
-            if (data && data.length > 0) { hasLocalData = true; break; }
-        }
-
-        const migratedFlag = localStorage.getItem('edu_firebase_migrated');
-
         try {
-            // تحقق هل Firebase فيه بيانات فعلاً
-            let firebaseHasData = false;
-            try {
-                const checkSnap = await window.firebaseDB.collection('students').limit(1).get();
-                const checkGroups = await window.firebaseDB.collection('groups').limit(1).get();
-                firebaseHasData = !checkSnap.empty || !checkGroups.empty;
-            } catch(e) { firebaseHasData = false; }
+            // ══════════════════════════════════════════════════════════════
+            //  استراتيجية المزامنة الآمنة: MERGE دائماً — لا حذف أبداً
+            //
+            //  الخطوة 1: ارفع كل البيانات المحلية لـ Firebase (push)
+            //            → يضمن إن أي إضافة محلية توصل للسحابة
+            //  الخطوة 2: اسحب من Firebase وادمج مع المحلي (merge pull)
+            //            → يضمن إن أي إضافة من جهاز تاني توصل هنا
+            //
+            //  النتيجة: Firebase + المحلي دايماً = اتحاد الاتنين بلا خسارة
+            // ══════════════════════════════════════════════════════════════
 
-            // إذا Firebase فاضي وعندنا بيانات محلية → ارفع دائماً بغض النظر عن الـ flag
-            if (hasLocalData && !firebaseHasData) {
-                localStorage.removeItem('edu_firebase_migrated');
-            }
+            // ── الخطوة 1: Push — ارفع المحلي لـ Firebase ──────────────
+            console.log('[Firebase] 📤 جارٍ رفع البيانات المحلية إلى Firebase...');
 
-            // إذا جهاز جديد بدون بيانات محلية، أو طلب سحب إجباري، أو Firebase فيه بيانات → اسحب
-            const shouldPull = forcePull || (migratedFlag === 'true' && firebaseHasData) || !hasLocalData;
-
-            if (!shouldPull) {
-                // جهاز لديه بيانات محلية ولم يُرحَّل بعد → ارفع إلى السحابة
-                console.log('[Firebase] 🚀 بدء الترحيل الأولي من IndexedDB المحلي إلى Firebase...');
-
-                const settings = localStorage.getItem('edu_master_settings');
-                if (settings) {
-                    try {
-                        await window.firebaseDB.collection('app_config').doc('settings').set(JSON.parse(settings));
-                        console.log('[Firebase] ✅ تم ترحيل الإعدادات إلى Firebase.');
-                    } catch(e) { console.error('[Firebase] ❌ خطأ في ترحيل الإعدادات:', e.code, e.message); }
-                }
-                const grades = localStorage.getItem('edu_grades_list');
-                if (grades) {
-                    try {
-                        await window.firebaseDB.collection('app_config').doc('grades_list').set({ list: JSON.parse(grades) });
-                        console.log('[Firebase] ✅ تم ترحيل قائمة المراحل إلى Firebase.');
-                    } catch(e) { console.error('[Firebase] ❌ خطأ في ترحيل قائمة المراحل:', e.code, e.message); }
-                }
-
-                for (const table of tables) {
-                    const localData = await this.getAllLocal(table);
-                    if (localData && localData.length > 0) {
-                        console.log(`[Firebase] 📤 جارٍ ترحيل ${localData.length} سجل من جدول "${table}"...`);
-                        let batch = window.firebaseDB.batch();
-                        let count = 0, totalUploaded = 0;
-                        for (const item of localData) {
-                            if (!item.id) continue;
-                            batch.set(window.firebaseDB.collection(table).doc(String(item.id)), item);
-                            count++;
-                            if (count === 500) {
-                                await batch.commit();
-                                totalUploaded += count;
-                                batch = window.firebaseDB.batch();
-                                count = 0;
-                            }
-                        }
-                        if (count > 0) { await batch.commit(); totalUploaded += count; }
-                        console.log(`[Firebase] ✅ اكتمل ترحيل "${table}" — ${totalUploaded} سجل.`);
-                    }
-                }
-                localStorage.setItem('edu_firebase_migrated', 'true');
-                console.log('[Firebase] 🎉 اكتمل الترحيل الأولي إلى Firebase!');
-
-            } else {
-                // اسحب أحدث البيانات من Firestore إلى IndexedDB المحلي
-                console.log('[Firebase] 🔄 جارٍ مزامنة البيانات من Firebase إلى IndexedDB المحلي...');
-
+            const settings = localStorage.getItem('edu_master_settings');
+            if (settings) {
                 try {
-                    const settingsDoc = await window.firebaseDB.collection('app_config').doc('settings').get();
-                    if (settingsDoc.exists) {
-                        localStorage.setItem('edu_master_settings', JSON.stringify(settingsDoc.data()));
-                        console.log('[Firebase] ✅ تمت مزامنة الإعدادات من Firebase.');
-                    } else {
-                        console.warn('[Firebase] ⚠️ لا توجد إعدادات في Firebase — سيُستخدم المحلي.');
-                    }
-                    const gradesDoc = await window.firebaseDB.collection('app_config').doc('grades_list').get();
-                    if (gradesDoc.exists && gradesDoc.data().list) {
-                        localStorage.setItem('edu_grades_list', JSON.stringify(gradesDoc.data().list));
-                        console.log('[Firebase] ✅ تمت مزامنة قائمة المراحل من Firebase.');
-                    }
-                } catch (e) {
-                    console.error('[Firebase] ❌ خطأ في جلب app_config من Firebase:', e.code, e.message);
-                }
-
-                for (const table of tables) {
-                    try {
-                        const snap = await window.firebaseDB.collection(table).get();
-                        const items = snap.docs.map(doc => doc.data());
-                        await this.overwriteStore(table, items);
-                        console.log(`[Firebase] ✅ تمت مزامنة "${table}" — ${items.length} سجل.`);
-                    } catch (tableErr) {
-                        console.error(`[Firebase] ❌ خطأ في مزامنة جدول "${table}":`, tableErr.code, tableErr.message);
-                    }
-                }
-                localStorage.setItem('edu_firebase_migrated', 'true');
-                console.log('[Firebase] ✅ اكتملت المزامنة من Firebase إلى IndexedDB المحلي.');
+                    await window.firebaseDB.collection('app_config').doc('settings').set(JSON.parse(settings));
+                } catch(e) { console.warn('[Firebase] ⚠️ خطأ في رفع الإعدادات:', e.message); }
             }
+            const grades = localStorage.getItem('edu_grades_list');
+            if (grades) {
+                try {
+                    await window.firebaseDB.collection('app_config').doc('grades_list').set({ list: JSON.parse(grades) });
+                } catch(e) { console.warn('[Firebase] ⚠️ خطأ في رفع قائمة المراحل:', e.message); }
+            }
+
+            for (const table of tables) {
+                const localData = await this.getAllLocal(table);
+                if (!localData || localData.length === 0) continue;
+                try {
+                    let batch = window.firebaseDB.batch();
+                    let count = 0, total = 0;
+                    for (const item of localData) {
+                        if (!item.id) continue;
+                        batch.set(window.firebaseDB.collection(table).doc(String(item.id)), item);
+                        count++;
+                        if (count === 500) {
+                            await batch.commit();
+                            total += count;
+                            batch = window.firebaseDB.batch();
+                            count = 0;
+                        }
+                    }
+                    if (count > 0) { await batch.commit(); total += count; }
+                    console.log(`[Firebase] ✅ رُفع "${table}" — ${total} سجل`);
+                } catch(e) {
+                    console.warn(`[Firebase] ⚠️ خطأ في رفع "${table}":`, e.message);
+                }
+            }
+            console.log('[Firebase] ✅ اكتمل الرفع المحلي إلى Firebase');
+
+            // ── الخطوة 2: Pull — اسحب من Firebase وادمج (بدون clear) ──
+            console.log('[Firebase] 📥 جارٍ سحب البيانات من Firebase ودمجها...');
+
+            try {
+                const settingsDoc = await window.firebaseDB.collection('app_config').doc('settings').get();
+                if (settingsDoc.exists) localStorage.setItem('edu_master_settings', JSON.stringify(settingsDoc.data()));
+                const gradesDoc = await window.firebaseDB.collection('app_config').doc('grades_list').get();
+                if (gradesDoc.exists && gradesDoc.data().list) localStorage.setItem('edu_grades_list', JSON.stringify(gradesDoc.data().list));
+            } catch(e) { console.warn('[Firebase] ⚠️ خطأ في سحب app_config:', e.message); }
+
+            for (const table of tables) {
+                try {
+                    const snap = await window.firebaseDB.collection(table).get();
+                    if (snap.empty) continue;
+                    const remoteItems = snap.docs.map(d => d.data());
+                    // merge: ندمج Remote مع المحلي — المحلي له الأولوية لو نفس الـ id
+                    await this.mergeIntoStore(table, remoteItems);
+                    console.log(`[Firebase] ✅ دُمج "${table}" — ${remoteItems.length} سجل من Firebase`);
+                } catch(e) {
+                    console.warn(`[Firebase] ⚠️ خطأ في سحب "${table}":`, e.message);
+                }
+            }
+
+            localStorage.setItem('edu_firebase_migrated', 'true');
+            console.log('[Firebase] ✅ اكتملت المزامنة الثنائية بنجاح');
 
             if (typeof updateFirebaseSyncStatusUI === 'function') updateFirebaseSyncStatusUI('latest');
 
@@ -460,6 +435,23 @@ const StorageEngine = {
     },
 
     // Helper to overwrite local IndexedDB store
+    // دمج آمن: يضيف السجلات الجديدة من Firebase بدون مسح المحلي
+    async mergeIntoStore(storeName, remoteItems) {
+        return new Promise((resolve) => {
+            if (!this.db || !this.db.objectStoreNames.contains(storeName)) return resolve(false);
+            const transaction = this.db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+            // put بيضيف لو مش موجود، وبيحدّث لو موجود بنفس الـ id
+            // المحلي والريموت بيتدمجوا بدون حذف أي منهم
+            remoteItems.forEach(item => {
+                try { if (item.id) store.put(item); } catch(e) {}
+            });
+            transaction.oncomplete = () => resolve(true);
+            transaction.onerror   = () => resolve(false);
+            transaction.onabort   = () => resolve(false);
+        });
+    },
+
     async overwriteStore(storeName, items) {
         return new Promise((resolve) => {
             if (!this.db || !this.db.objectStoreNames.contains(storeName)) {
