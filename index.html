@@ -248,6 +248,12 @@
                     </a>
                 </li>
                 <li class="nav-item" data-rbac="admin">
+                    <a href="#" class="nav-link" id="nav-student-links" onclick="showSection('student-links', this)">
+                        <i class="fas fa-link" style="color:#25D366"></i>
+                        <span>لينكات الطلاب</span>
+                    </a>
+                </li>
+                <li class="nav-item" data-rbac="admin">
                     <a href="#" class="nav-link" id="nav-platform-codes" onclick="showSection('platform-codes', this)">
                         <i class="fas fa-ticket-alt" style="color:var(--accent)"></i>
                         <span>أكواد المنصة</span>
@@ -2417,6 +2423,76 @@
 
     </main>
 
+    <!-- ============================================================
+         قسم لينكات الطلاب — student-links-section
+         يعرض كل الطلاب مع رابط متابعة كل طالب وزر واتساب مباشر
+    ============================================================ -->
+    <section id="student-links-section" style="display:none;" class="fade-in">
+        <div style="padding: 1.5rem; max-width: 1100px; margin: 0 auto;">
+
+            <!-- Header -->
+            <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem;">
+                <div>
+                    <h2 style="margin:0; font-size:1.5rem; color:var(--text-primary);">
+                        <i class="fas fa-link" style="color:#25D366; margin-left:.5rem;"></i>
+                        لينكات الطلاب
+                    </h2>
+                    <p style="margin:.3rem 0 0; color:var(--text-muted); font-size:.9rem;">
+                        ابعت رابط متابعة كل طالب لولي الأمر مباشرةً عبر واتساب
+                    </p>
+                </div>
+                <div style="display:flex; gap:.7rem; flex-wrap:wrap;">
+                    <input id="sl-search" type="text" placeholder="🔍 ابحث باسم الطالب..." oninput="renderStudentLinks()"
+                        style="padding:.6rem 1rem; border-radius:10px; border:1px solid var(--border-color);
+                               background:var(--bg-secondary); color:var(--text-primary); font-family:inherit; width:220px;">
+                    <select id="sl-grade" onchange="renderStudentLinks()"
+                        style="padding:.6rem 1rem; border-radius:10px; border:1px solid var(--border-color);
+                               background:var(--bg-secondary); color:var(--text-primary); font-family:inherit;">
+                        <option value="">كل الصفوف</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="sendAllStudentLinksWhatsApp()"
+                        style="background:#25D366; border:none; display:flex; align-items:center; gap:.4rem;">
+                        <i class="fab fa-whatsapp"></i> إرسال الكل دفعة واحدة
+                    </button>
+                </div>
+            </div>
+
+            <!-- إحصائية سريعة -->
+            <div id="sl-stats" style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.2rem;"></div>
+
+            <!-- جدول الطلاب -->
+            <div style="background:var(--bg-secondary); border-radius:16px; overflow:hidden; box-shadow:var(--shadow);">
+                <table style="width:100%; border-collapse:collapse;">
+                    <thead>
+                        <tr style="background:var(--bg-tertiary); text-align:right;">
+                            <th style="padding:.9rem 1rem; color:var(--text-muted); font-weight:600;">#</th>
+                            <th style="padding:.9rem 1rem; color:var(--text-muted); font-weight:600;">اسم الطالب</th>
+                            <th style="padding:.9rem 1rem; color:var(--text-muted); font-weight:600;">الصف</th>
+                            <th style="padding:.9rem 1rem; color:var(--text-muted); font-weight:600;">رابط المتابعة</th>
+                            <th style="padding:.9rem 1rem; color:var(--text-muted); font-weight:600;">إرسال</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sl-table-body">
+                        <tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-muted);">
+                            <i class="fas fa-spinner fa-spin"></i> جارٍ التحميل...
+                        </td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- تعليمات سريعة -->
+            <div style="margin-top:1.2rem; padding:1rem 1.2rem; background:rgba(37,211,102,.08);
+                        border-radius:12px; border:1px solid rgba(37,211,102,.25); font-size:.88rem; color:var(--text-secondary);">
+                <i class="fab fa-whatsapp" style="color:#25D366; margin-left:.3rem;"></i>
+                <strong>كيف يشتغل؟</strong>
+                اضغط على أيقونة واتساب بجانب أي طالب → هتفتحلك رسالة جاهزة لولي الأمر فيها الرابط المباشر → اضغط إرسال.
+                الرابط بيفتحلك صفحة الطالب مباشرةً من خلال
+                <strong>ddfvdjbdksv-spec.github.io/sy_father/student.html</strong>
+                اللي فيها كل بياناته.
+            </div>
+        </div>
+    </section>
+
     <!-- Student Entry Modal -->
     <div id="student-modal" class="modal-overlay" style="display: none;">
         <div class="modal-content">
@@ -3621,6 +3697,15 @@
                         ? existingApp.firestore()
                         : firebase.firestore();
                     console.log('[Firebase] ✅ تمت تهيئة Firebase بنجاح — المشروع:', firebaseConfig.projectId);
+
+                    // ✅✅ إصلاح جوهري: بعض سجلات الطلاب/الحصص فيها حقول قيمتها undefined
+                    // (مثال: طالب اتسجل بدون مجموعة → groupId يبقى undefined).
+                    // Firestore بشكل افتراضي يرفض الكتابة كاملةً (batch كامل!) لو أي حقل
+                    // واحد قيمته undefined — والخطأ ده كان بيحصل بصمت (catch بيمسك الخطأ
+                    // ويسجله في console بس، فالطالب يفضل غير موجود في السحابة للأبد
+                    // من غير ما حد ينتبه). هذا السطر يخلي Firestore يتجاهل الحقل الفاضي
+                    // بدل ما يرفض السجل كله. *لازم* تتنادى قبل أي استخدام تاني لـ firebaseDB.
+                    window.firebaseDB.settings({ ignoreUndefinedProperties: true });
 
                     // ✅ إصلاح مشكلة 4: تفعيل Offline Persistence
                     // يخلّي Firestore يحتفظ بكاش في IndexedDB حتى بعد إغلاق التبويب

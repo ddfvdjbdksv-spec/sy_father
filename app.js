@@ -398,25 +398,32 @@ const StorageEngine = {
             for (const table of tables) {
                 const localData = await this.getAllLocal(table);
                 if (!localData || localData.length === 0) continue;
-                try {
-                    let batch = window.firebaseDB.batch();
-                    let count = 0, total = 0;
-                    for (const item of localData) {
-                        if (!item.id) continue;
-                        batch.set(window.firebaseDB.collection(table).doc(String(item.id)), item);
-                        count++;
-                        if (count === 500) {
-                            await batch.commit();
-                            total += count;
-                            batch = window.firebaseDB.batch();
-                            count = 0;
+                const validItems = localData.filter(item => item && item.id);
+                let total = 0, failed = 0;
+                // نقسم لمجموعات من 500 سجل (الحد الأقصى لـ batch واحد في Firestore)
+                for (let i = 0; i < validItems.length; i += 500) {
+                    const chunk = validItems.slice(i, i + 500);
+                    try {
+                        const batch = window.firebaseDB.batch();
+                        chunk.forEach(item => batch.set(window.firebaseDB.collection(table).doc(String(item.id)), item));
+                        await batch.commit();
+                        total += chunk.length;
+                    } catch (batchErr) {
+                        // ✅ لو الـ batch كامل فشل (غالباً بسبب سجل واحد بايظ فيه)، منسيبش
+                        // باقي الـ 499 سجل السليمين يضيعوا معاه — نعيد المحاولة لكل سجل لوحده
+                        console.warn(`[Firebase] ⚠️ فشل batch كامل في "${table}" (${chunk.length} سجل) — إعادة المحاولة فردياً:`, batchErr.message);
+                        for (const item of chunk) {
+                            try {
+                                await window.firebaseDB.collection(table).doc(String(item.id)).set(item);
+                                total++;
+                            } catch (itemErr) {
+                                failed++;
+                                console.error(`[Firebase] ❌ فشل رفع سجل فردي في "${table}" (id: ${item.id}):`, itemErr.message);
+                            }
                         }
                     }
-                    if (count > 0) { await batch.commit(); total += count; }
-                    console.log(`[Firebase] ✅ رُفع "${table}" — ${total} سجل`);
-                } catch(e) {
-                    console.warn(`[Firebase] ⚠️ خطأ في رفع "${table}":`, e.message);
                 }
+                console.log(`[Firebase] ✅ رُفع "${table}" — ${total} سجل${failed > 0 ? ` (⚠️ فشل ${failed} سجل — راجع الـ console)` : ''}`);
             }
             console.log('[Firebase] ✅ اكتمل الرفع المحلي إلى Firebase');
 
@@ -2126,7 +2133,7 @@ function showSection(sectionId, btnEl) {
         'groups-section', 'group-detail-section', 'idcards-section',
         'daily-treasury-section', 'shifts-section', 'settings-section',
         'platform-codes-section', 'receipts-section', 'platform-activation-section',
-        'employee-platform-sync-section'
+        'employee-platform-sync-section', 'student-links-section'
     ];
     sections.forEach(id => {
         const el = document.getElementById(id);
@@ -2149,7 +2156,8 @@ function showSection(sectionId, btnEl) {
         'idcards': 'طباعة الأكواد', 'daily-treasury': 'الخزنة اليومية (عهدة السكرتارية)',
         'shifts': 'إدارة شفتات الموظفين', 'platform-codes': 'أكواد المنصة',
         'receipts': 'وصولات الدفع', 'platform-activation': 'تفعيل كورسات المنصة',
-        'employee-platform-sync': 'مزامنة المنصة التعليمية'
+        'employee-platform-sync': 'مزامنة المنصة التعليمية',
+        'student-links': 'لينكات الطلاب'
     };
     document.getElementById('page-title').innerText = titles[sectionId] || 'نظام إدارة الدروس';
 
@@ -2198,6 +2206,7 @@ function showSection(sectionId, btnEl) {
     if (sectionId === 'whatsapp') renderWABot();
     if (sectionId === 'daily-treasury') renderDailyTreasury();
     if (sectionId === 'settings') renderProgramSettings();
+    if (sectionId === 'student-links') initStudentLinksSection();
 
     updateDashboardStats();
     updateExperienceSummary();
@@ -12837,6 +12846,211 @@ async function diagnoseStaffAuth(testPin = null) {
 }
 
 window.diagnoseStaffAuth = diagnoseStaffAuth;
+
+// ============================================================
+//  قسم لينكات الطلاب — Student Links Section
+//  يعرض كل الطلاب + رابط student.html الخاص بكل طالب
+//  + زر واتساب مباشر لولي الأمر أو الطالب
+// ============================================================
+
+function initStudentLinksSection() {
+    // ملء فلتر الصفوف
+    const gradeSelect = document.getElementById('sl-grade');
+    if (gradeSelect && typeof buildGradeOptions === 'function') {
+        gradeSelect.innerHTML = buildGradeOptions('', true);
+    } else if (gradeSelect) {
+        // fallback لو buildGradeOptions مش محملة
+        const grades = [...new Set((db.students || []).map(s => s.grade).filter(Boolean))];
+        gradeSelect.innerHTML = '<option value="">كل الصفوف</option>' +
+            grades.map(g => `<option value="${g}">${typeof gradeLabel === 'function' ? gradeLabel(g) : g}</option>`).join('');
+    }
+    renderStudentLinks();
+}
+
+function renderStudentLinks() {
+    const search    = (document.getElementById('sl-search')?.value || '').trim().toLowerCase();
+    const gradeFilter = document.getElementById('sl-grade')?.value || '';
+
+    let students = (db.students || []).filter(s => {
+        const matchName  = !search || (s.name || '').toLowerCase().includes(search);
+        const matchGrade = !gradeFilter || gradeFilter === 'all' || s.grade === gradeFilter;
+        return matchName && matchGrade;
+    });
+
+    // ترتيب أبجدي
+    students = students.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
+
+    // إحصائية سريعة
+    const statsEl = document.getElementById('sl-stats');
+    if (statsEl) {
+        statsEl.innerHTML = `
+            <div style="background:var(--bg-tertiary); border-radius:10px; padding:.6rem 1.1rem;
+                        display:flex; align-items:center; gap:.5rem; font-size:.88rem;">
+                <i class="fas fa-users" style="color:var(--primary)"></i>
+                <span>إجمالي الطلاب: <strong>${students.length}</strong></span>
+            </div>
+            <div style="background:var(--bg-tertiary); border-radius:10px; padding:.6rem 1.1rem;
+                        display:flex; align-items:center; gap:.5rem; font-size:.88rem;">
+                <i class="fab fa-whatsapp" style="color:#25D366"></i>
+                <span>لديهم رقم ولي الأمر: <strong>${students.filter(s => s.parentPhone).length}</strong></span>
+            </div>
+            <div style="background:var(--bg-tertiary); border-radius:10px; padding:.6rem 1.1rem;
+                        display:flex; align-items:center; gap:.5rem; font-size:.88rem;">
+                <i class="fas fa-link" style="color:var(--accent)"></i>
+                <span>لديهم كود QR: <strong>${students.filter(s => s.qrCode).length}</strong></span>
+            </div>`;
+    }
+
+    const tbody = document.getElementById('sl-table-body');
+    if (!tbody) return;
+
+    if (!students.length) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-muted);">
+            <i class="fas fa-search" style="font-size:2rem; margin-bottom:.5rem; display:block;"></i>
+            لا يوجد طلاب مطابقون للبحث
+        </td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = students.map((s, i) => {
+        const link    = s.qrCode ? getStudentTrackingLink(s.qrCode) : null;
+        const hasQR   = !!link;
+        const hasParent = !!(s.parentPhone);
+        const hasPhone  = !!(s.phone);
+        const gradeText = typeof gradeLabel === 'function' ? gradeLabel(s.grade) : (s.grade || '---');
+
+        return `<tr style="border-top:1px solid var(--border-color);">
+            <td style="padding:.75rem 1rem; color:var(--text-muted); font-size:.85rem;">${i + 1}</td>
+            <td style="padding:.75rem 1rem;">
+                <strong style="color:var(--text-primary)">${s.name || '---'}</strong>
+            </td>
+            <td style="padding:.75rem 1rem;">
+                <span class="status-badge" style="background:var(--bg-tertiary); color:var(--text-secondary); font-size:.8rem;">
+                    ${gradeText}
+                </span>
+            </td>
+            <td style="padding:.75rem 1rem; direction:ltr; text-align:left;">
+                ${hasQR
+                    ? `<a href="${link}" target="_blank"
+                          style="font-size:.78rem; color:var(--primary); word-break:break-all;
+                                 text-decoration:none; display:flex; align-items:center; gap:.3rem;">
+                           <i class="fas fa-external-link-alt" style="flex-shrink:0"></i>
+                           ${link}
+                       </a>`
+                    : `<span style="color:var(--text-muted); font-size:.8rem;"><i class="fas fa-exclamation-circle"></i> لا يوجد كود QR</span>`
+                }
+            </td>
+            <td style="padding:.75rem 1rem;">
+                <div style="display:flex; gap:.4rem; flex-wrap:wrap;">
+                    ${hasQR && hasParent
+                        ? `<button class="btn" title="واتساب ولي الأمر"
+                                onclick="sendStudentLinkToParent(${s.id})"
+                                style="padding:5px 10px; background:#25D366; color:white; font-size:.82rem;">
+                               <i class="fab fa-whatsapp"></i> ولي الأمر
+                           </button>`
+                        : `<span style="color:var(--text-muted); font-size:.8rem;">
+                               ${!hasQR ? 'لا يوجد كود' : 'لا يوجد رقم ولي الأمر'}
+                           </span>`
+                    }
+                    ${hasQR && hasPhone
+                        ? `<button class="btn" title="واتساب الطالب"
+                                onclick="sendStudentLinkToStudent(${s.id})"
+                                style="padding:5px 10px; background:#facc15; color:#78350f; font-size:.82rem;">
+                               <i class="fab fa-whatsapp"></i> الطالب
+                           </button>`
+                        : ''
+                    }
+                    ${hasQR
+                        ? `<button class="btn" title="نسخ الرابط"
+                                onclick="copyStudentLink(${s.id}, this)"
+                                style="padding:5px 10px; font-size:.82rem;">
+                               <i class="fas fa-copy"></i>
+                           </button>`
+                        : ''
+                    }
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function sendStudentLinkToParent(id) {
+    const s = db.students.find(x => x.id === id);
+    if (!s) return;
+    if (!s.parentPhone) { showNotification('رقم ولي الأمر غير مسجل', 'error'); return; }
+    const link = getStudentTrackingLink(s.qrCode);
+    const msg = buildFormalParentMessage({
+        noticeType: 'رابط متابعة الطالب',
+        bodyLines: [
+            `يمكنكم متابعة بيانات الطالب/ـة *${s.name}* (الحضور، الغياب، حالة الاشتراك، تقييم الأداء الشهري) في أي وقت من خلال الرابط التالي:`,
+            link,
+            `يمكنكم حفظ هذا الرابط للرجوع إليه في أي وقت.`
+        ]
+    });
+    window.open(`https://wa.me/2${s.parentPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
+function sendStudentLinkToStudent(id) {
+    const s = db.students.find(x => x.id === id);
+    if (!s) return;
+    if (!s.phone) { showNotification('رقم هاتف الطالب غير مسجل', 'error'); return; }
+    const link = getStudentTrackingLink(s.qrCode);
+    const msg = `السلام عليكم ورحمة الله وبركاته،\n\nيمكنك متابعة بياناتك الدراسية (الحضور، الاشتراك، تقييم الأداء الشهري) من خلال الرابط التالي:\n${link}\n\nاحفظ الرابط للرجوع إليه في أي وقت.${getTeacherSignatureLine()}`;
+    window.open(`https://wa.me/2${s.phone}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
+function copyStudentLink(id, btn) {
+    const s = db.students.find(x => x.id === id);
+    if (!s || !s.qrCode) return;
+    const link = getStudentTrackingLink(s.qrCode);
+    navigator.clipboard.writeText(link).then(() => {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check"></i>';
+        btn.style.background = '#22c55e';
+        btn.style.color = 'white';
+        setTimeout(() => { btn.innerHTML = orig; btn.style.background = ''; btn.style.color = ''; }, 1800);
+        showNotification('✅ تم نسخ الرابط', 'success');
+    }).catch(() => {
+        showNotification('تعذر النسخ — انسخ الرابط يدوياً', 'error');
+    });
+}
+
+function sendAllStudentLinksWhatsApp() {
+    const search      = (document.getElementById('sl-search')?.value || '').trim().toLowerCase();
+    const gradeFilter = document.getElementById('sl-grade')?.value || '';
+    const students = (db.students || []).filter(s => {
+        const matchName  = !search || (s.name || '').toLowerCase().includes(search);
+        const matchGrade = !gradeFilter || gradeFilter === 'all' || s.grade === gradeFilter;
+        return matchName && matchGrade && s.qrCode && s.parentPhone;
+    });
+
+    if (!students.length) {
+        showNotification('لا يوجد طلاب بأرقام ولي الأمر في الفلتر الحالي', 'error');
+        return;
+    }
+
+    // نفتح كل رسالة بفاصل زمني 700ms حتى لا يحجب المتصفح النوافذ
+    let i = 0;
+    function openNext() {
+        if (i >= students.length) {
+            showNotification(`✅ تم فتح ${students.length} رسالة واتساب`, 'success');
+            return;
+        }
+        sendStudentLinkToParent(students[i].id);
+        i++;
+        if (i < students.length) setTimeout(openNext, 700);
+        else showNotification(`✅ تم فتح ${students.length} رسالة واتساب`, 'success');
+    }
+
+    if (!confirm(`سيتم فتح ${students.length} نافذة واتساب، واحدة لكل طالب.\nهل تريد المتابعة؟`)) return;
+    openNext();
+}
+
+window.renderStudentLinks        = renderStudentLinks;
+window.sendStudentLinkToParent   = sendStudentLinkToParent;
+window.sendStudentLinkToStudent  = sendStudentLinkToStudent;
+window.copyStudentLink           = copyStudentLink;
+window.sendAllStudentLinksWhatsApp = sendAllStudentLinksWhatsApp;
 
 // ============================================================
 //  PendingQueue — طابور العمليات المعلقة أثناء انقطاع الإنترنت
