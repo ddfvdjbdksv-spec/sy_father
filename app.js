@@ -6960,7 +6960,7 @@ async function generatePrintCard(id) {
         if (qrContainer) {
             qrContainer.innerHTML = '';
             new QRCode(qrContainer, {
-                text: getStudentTrackingLink(code),
+                text: getStudentTrackingLink(s || code),
                 width: 130,
                 height: 130,
                 colorDark: '#000000',
@@ -9270,44 +9270,41 @@ async function clearAllStudents() {
 //  ⚠️ صفحة student.html حالياً تعرض بيانات تجريبية/محلية فقط لحين
 //  إرسال بيانات Firebase وربطها فعلياً (كما هو متفق).
 // ============================================================
-function getStudentTrackingLink(qrCode) {
-    // 1. لو تم ضبط رابط يدوي من الإعدادات → استخدمه
+function getStudentTrackingToken(studentOrCode) {
+    if (studentOrCode && typeof studentOrCode === 'object') {
+        return String(studentOrCode.id || studentOrCode.qrCode || '').trim();
+    }
+    const raw = String(studentOrCode || '').trim();
+    const student = (db.students || []).find(s => String(s.qrCode) === raw || String(s.id) === raw);
+    return String(student?.id || raw).trim();
+}
+
+function getStudentTrackingLink(studentOrCode) {
+    const token = encodeURIComponent(getStudentTrackingToken(studentOrCode));
+
     if (db.settings && db.settings.trackingBaseUrl && db.settings.trackingBaseUrl !== 'null') {
-        return `${db.settings.trackingBaseUrl.replace(/\/$/, '')}/student.html?id=${qrCode}`;
+        return `${db.settings.trackingBaseUrl.replace(/\/$/, '')}/student.html?id=${token}`;
     }
 
-    // 2. على GitHub Pages: تحديد تلقائي ذكي
-    // بما في ذلك اسم الريبو الفرعي (sy_father)
     const currentHost = window.location.hostname;
     const currentPathname = window.location.pathname;
-    
+
     if (currentHost.includes('github.io')) {
-        // استخراج اسم الريبو من المسار
-        // مثال: /sy_father/index.html → /sy_father
         const pathParts = currentPathname.split('/').filter(p => p);
-        let repoName = '';
-        
-        // إذا كان المسار يحتوي على أكثر من جزء، الأول هو اسم الريبو
-        if (pathParts.length > 0) {
-            repoName = pathParts[0];
-        }
-        
-        const githubBase = `https://${currentHost}/${repoName}`;
-        return `${githubBase}/student.html?id=${qrCode}`;
+        const repoName = pathParts.length > 0 ? pathParts[0] : '';
+        const githubBase = `https://${currentHost}/${repoName}`.replace(/\/$/, '');
+        return `${githubBase}/student.html?id=${token}`;
     }
 
-    // 3. للتطبيقات المحلية أو الاستضافات الأخرى
     if (!window.location.protocol.startsWith('file') &&
         !window.location.hostname.includes('localhost') &&
         !window.location.hostname.includes('127.0.0.1')) {
         const dir = window.location.pathname.replace(/[^/]*$/, '');
         const base = window.location.origin + dir;
-        return `${base.replace(/\/$/, '')}/student.html?id=${qrCode}`;
+        return `${base.replace(/\/$/, '')}/student.html?id=${token}`;
     }
 
-    // 4. Fallback نهائي آخر الحيل: الرابط الثابت الصحيح
-    // https://ddfvdjbdksv-spec.github.io/sy_father/
-    return 'https://ddfvdjbdksv-spec.github.io/sy_father/student.html?id=' + qrCode;
+    return 'https://ddfvdjbdksv-spec.github.io/sy_father/student.html?id=' + token;
 }
 
 async function saveTrackingBaseUrl() {
@@ -9353,7 +9350,7 @@ function sendStudentTrackingWhatsApp(id) {
     const s = db.students.find(x => x.id === id);
     if (!s) return;
     if (!s.phone) { showNotification('رقم هاتف الطالب غير مسجل', 'error'); return; }
-    const link = getStudentTrackingLink(s.qrCode);
+    const link = getStudentTrackingLink(s);
     const msg = `السلام عليكم ورحمة الله وبركاته،\n\nيمكنك متابعة بياناتك (الحضور، الاشتراك، تقييم الأداء) من خلال الرابط التالي:\n${link}${getTeacherSignatureLine()}`;
     window.open(`https://wa.me/2${s.phone}?text=${encodeURIComponent(msg)}`, '_blank');
 }
@@ -9362,7 +9359,7 @@ function sendParentTrackingWhatsApp(id) {
     const s = db.students.find(x => x.id === id);
     if (!s) return;
     if (!s.parentPhone) { showNotification('رقم ولي الأمر غير مسجل', 'error'); return; }
-    const link = getStudentTrackingLink(s.qrCode);
+    const link = getStudentTrackingLink(s);
     const msg = buildFormalParentMessage({
         noticeType: 'رابط متابعة الطالب',
         bodyLines: [
@@ -11808,7 +11805,7 @@ function generatePrintableIDCards(students, mode = 'normal') {
                 '    jsbarcode-fontSize="' + (tFont * 0.8) + '"></svg>' +
                 '  </div>' +
                 '  <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;">' +
-                '    <div class="qrcode-container" data-url="' + getStudentTrackingLink(s.qrCode) + '" style="width: ' + (parseInt(tBCodeH) + 10) + 'px; height: ' + (parseInt(tBCodeH) + 10) + 'px; display: flex; align-items: center; justify-content: center;"></div>' +
+                '    <div class="qrcode-container" data-url="' + getStudentTrackingLink(s) + '" style="width: ' + (parseInt(tBCodeH) + 10) + 'px; height: ' + (parseInt(tBCodeH) + 10) + 'px; display: flex; align-items: center; justify-content: center;"></div>' +
                 '    <span style="font-size: ' + (tFont * 0.55) + 'px; color: #64748b; font-weight: bold; margin-top: 2px; white-space: nowrap;">رابط المتابعة</span>' +
                 '  </div>' +
                 '</div>' +
@@ -11846,7 +11843,7 @@ function generatePrintableIDCards(students, mode = 'normal') {
                     '    </div>' +
                     '  </div>' +
                     '  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">' +
-                    '    <div class="qrcode-container" data-url="' + getStudentTrackingLink(s.qrCode) + '" style="width: 55px; height: 55px; display: flex; align-items: center; justify-content: center;"></div>' +
+                    '    <div class="qrcode-container" data-url="' + getStudentTrackingLink(s) + '" style="width: 55px; height: 55px; display: flex; align-items: center; justify-content: center;"></div>' +
                     '    <span style="font-size: 0.55rem; color: #64748b; font-weight: bold; white-space: nowrap;">رمز المتابعة</span>' +
                     '  </div>' +
                     '</div>' +
@@ -12913,7 +12910,7 @@ function renderStudentLinks() {
     }
 
     tbody.innerHTML = students.map((s, i) => {
-        const link    = s.qrCode ? getStudentTrackingLink(s.qrCode) : null;
+        const link    = s.qrCode ? getStudentTrackingLink(s) : null;
         const hasQR   = !!link;
         const hasParent = !!(s.parentPhone);
         const hasPhone  = !!(s.phone);
@@ -12978,7 +12975,7 @@ function sendStudentLinkToParent(id) {
     const s = db.students.find(x => x.id === id);
     if (!s) return;
     if (!s.parentPhone) { showNotification('رقم ولي الأمر غير مسجل', 'error'); return; }
-    const link = getStudentTrackingLink(s.qrCode);
+    const link = getStudentTrackingLink(s);
     const msg = buildFormalParentMessage({
         noticeType: 'رابط متابعة الطالب',
         bodyLines: [
@@ -12994,7 +12991,7 @@ function sendStudentLinkToStudent(id) {
     const s = db.students.find(x => x.id === id);
     if (!s) return;
     if (!s.phone) { showNotification('رقم هاتف الطالب غير مسجل', 'error'); return; }
-    const link = getStudentTrackingLink(s.qrCode);
+    const link = getStudentTrackingLink(s);
     const msg = `السلام عليكم ورحمة الله وبركاته،\n\nيمكنك متابعة بياناتك الدراسية (الحضور، الاشتراك، تقييم الأداء الشهري) من خلال الرابط التالي:\n${link}\n\nاحفظ الرابط للرجوع إليه في أي وقت.${getTeacherSignatureLine()}`;
     window.open(`https://wa.me/2${s.phone}?text=${encodeURIComponent(msg)}`, '_blank');
 }
@@ -13002,7 +12999,7 @@ function sendStudentLinkToStudent(id) {
 function copyStudentLink(id, btn) {
     const s = db.students.find(x => x.id === id);
     if (!s || !s.qrCode) return;
-    const link = getStudentTrackingLink(s.qrCode);
+    const link = getStudentTrackingLink(s);
     navigator.clipboard.writeText(link).then(() => {
         const orig = btn.innerHTML;
         btn.innerHTML = '<i class="fas fa-check"></i>';
